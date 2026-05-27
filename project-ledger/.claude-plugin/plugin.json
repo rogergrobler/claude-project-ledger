@@ -1,0 +1,9 @@
+{
+  "name": "project-ledger",
+  "version": "0.1.0",
+  "description": "Stellenbosch Ledger — Roger's personal dashboard, refreshed across WhatsApp/Gmail/Calendar/Notion/Drive and published to GitHub Pages.",
+  "author": {
+    "name": "Roger Grobler",
+    "email": "roger.grobler@gmail.com"
+  }
+}

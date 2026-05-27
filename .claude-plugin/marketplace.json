@@ -1,0 +1,13 @@
+{
+  "name": "project-ledger",
+  "owner": {
+    "name": "Roger Grobler"
+  },
+  "plugins": [
+    {
+      "name": "project-ledger",
+      "source": "./project-ledger",
+      "description": "Stellenbosch Ledger dashboard — full-sweep daily refresh across WhatsApp, Gmail, Calendar, Notion, and Drive, published to GitHub Pages. Portable across any machine linked to Roger's Claude account."
+    }
+  ]
+}
