@@ -30,13 +30,23 @@ Then narrate the recovery so Roger knows.
 
 Launch a single general-purpose agent IN THE BACKGROUND with the full sweep prompt (see `references/sweep-prompt.md` in this skill directory if you need the canonical version). The agent must:
 
-- Pull WhatsApp messages from the last 24 hours via `mcp__whatsapp__list_chats` then `mcp__whatsapp__list_messages` per active chat.
+**WhatsApp — MANDATORY contacts, sweep on EVERY fire (no exceptions):**
+- **Isa De Villiers · `27721818934@s.whatsapp.net`** — Roger's executive assistant; carries critical operational items (payments, calendar moves, valuation sign-offs, family logistics). She uses the convention `Spock: <message>` to flag items she expects on the dashboard. Pull her thread with `mcp__whatsapp__list_messages` covering at minimum the last 24 hours and the entire most recent thread, even if list_chats doesn't surface her name in the top-10. **A sweep that omits Isa is a failed sweep — flag the omission in the digest and treat it as a source error.**
+- **Elca / Alabama · `919908732597@s.whatsapp.net`** (saved as "Alabama 🎈✨🙏🏾") — Roger's wife. Family logistics, Camp David, household. Same rule: pull her thread directly, every fire, regardless of what list_chats returns.
+
+**WhatsApp — general sweep:**
+- After the two mandatory contacts above, pull `mcp__whatsapp__list_chats` with limit 10 and `mcp__whatsapp__list_messages` per active chat for the last 24 hours.
+- Scan every message body (across all chats) for the case-insensitive prefix `"spock:"` at the start of a line — these are explicit "missing-item, please add" flags that bypass normal triage and must be surfaced verbatim with their Notion / URL payloads in the digest.
+
+**Other sources:**
 - Run targeted Gmail searches via `mcp__5508cee3-3894-430d-ad42-a90478ec1298__search_threads` keyed to the open threads from the previous edition (M-Kopa, Optasia, portfolio names, family threads).
 - List today and tomorrow's calendar events via `mcp__70bd15a3-8278-4771-b9a6-8282063bf947__list_events`.
 - Hit Notion (`mcp__7cf2ebb5-ae5a-4a10-9ec8-1272580794b5__notion-search`) for last-edited matches on the active deal codenames.
 - Hit Drive (`mcp__0b1096ba-68e1-4341-8b2e-69c4b381de5a__list_recent_files`) for fresh documents.
-- Return a digest under 700 words structured as: WhatsApp deltas / Gmail deltas / Calendar today+tomorrow / Notion deltas / Drive deltas / what's-still-open verification / top 3 next-90-minute actions.
-- Name source errors but never retry endlessly.
+
+**Output contract:**
+- Return a digest under 700 words structured as: WhatsApp deltas (Isa first, Elca/Alabama second, then everyone else) / `Spock:`-prefix flags / Gmail deltas / Calendar today+tomorrow / Notion deltas / Drive deltas / what's-still-open verification / top 3 next-90-minute actions.
+- If a source MCP isn't loaded in the current session (common in headless `claude --print` invocations — happens with WhatsApp specifically), name it under "Source errors" loudly. Do not silently skip Isa or Elca. The user must see the gap in the published edition.
 
 NO cached data. NO copying from the previous edition's notes. Fresh reads only.
 
