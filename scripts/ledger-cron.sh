@@ -55,6 +55,13 @@ fi
 
 cd "$HOME"
 
+# Drop the CLAUDECODE marker so this works whether we're launched from a fresh
+# launchd process (var not set — no-op) or as a smoke-test from inside an
+# existing Claude Code session (var set, would otherwise trigger Claude Code's
+# nested-session refusal).
+unset CLAUDECODE
+unset CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
+
 {
   echo ""
   echo "--- claude --print '/ledger-now' ---"
