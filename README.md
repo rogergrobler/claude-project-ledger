@@ -47,6 +47,50 @@ On any machine linked to Roger's Claude account:
 
 Each needs to be in the `permissions.allow` list of `~/.claude/settings.json`. `/ledger-setup` checks this.
 
+## Scheduled rebuilds (macOS launchd)
+
+A launchd job fires the rebuild three times a day in SAST:
+
+| Time (SAST) | Slot |
+| --- | --- |
+| 06:30 | morning |
+| 13:00 | midday |
+| 21:00 | evening |
+
+Each fire runs `claude --print --dangerously-skip-permissions "/ledger-now"` headlessly, logs to `~/Documents/Claude/Projects/Project Ledger/project_ledger/cron-logs/`, and rotates the last 30 fires.
+
+### Install on a new machine
+
+```bash
+bash ~/code/claude-project-ledger/scripts/install-launchd.sh
+```
+
+Idempotent — unloads any existing job before re-installing. Requires:
+- `claude` CLI at `~/.local/bin/claude` (logged in to your account)
+- `gh` CLI authenticated (`gh auth status` green) for the `spock-site-build` push
+- The `project-ledger` plugin enabled in `~/.claude/settings.json` (this repo's marketplace registered)
+
+### Inspect / debug
+
+```bash
+# Is the job loaded?
+launchctl list | grep ledger
+
+# Recent fires
+ls -lt ~/Documents/Claude/Projects/Project\ Ledger/project_ledger/cron-logs/
+
+# Fire one manually
+bash ~/code/claude-project-ledger/scripts/ledger-cron.sh
+
+# Uninstall
+launchctl unload ~/Library/LaunchAgents/com.rogergrobler.ledger.plist
+rm ~/Library/LaunchAgents/com.rogergrobler.ledger.plist
+```
+
+### Linux / other OS
+
+The plist + launchctl path is macOS-specific. For Linux, port to systemd (`~/.config/systemd/user/ledger.timer` + `ledger.service`) or cron — the `ledger-cron.sh` script is portable.
+
 ## Author
 
 Roger Grobler · roger.grobler@gmail.com

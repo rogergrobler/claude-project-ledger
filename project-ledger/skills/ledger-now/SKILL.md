@@ -59,13 +59,16 @@ When the sweep agent returns, apply edits in parallel where possible (multiple `
 ### Step 5 — Snapshot, publish, poll
 
 ```bash
-cd ~/Documents/Claude/Projects/Project\ Ledger/project_ledger
+# Use a quoted absolute-path variable — the working-dir literally contains a space
+# ("Project Ledger"), and `cd path\ with\ space` silently fails in non-interactive
+# Bash subshells (caught v1.16, 27 May 2026).
+PROJDIR="/Users/rogergrobler/Documents/Claude/Projects/Project Ledger/project_ledger"
 SAST_DATE=$(TZ='Africa/Johannesburg' date '+%Y-%m-%d')
 SLOT=$(TZ='Africa/Johannesburg' date '+%H' | awk '$1<11{print"morning"} $1>=11&&$1<16{print"midday"} $1>=16&&$1<21{print"evening"} $1>=21{print"night"}')
-cp current.html "edition_${SAST_DATE}-${SLOT}.html"
+cp "$PROJDIR/current.html" "$PROJDIR/edition_${SAST_DATE}-${SLOT}.html"
 rm -rf /tmp/spock-site-build
 git clone --depth 1 https://github.com/rogergrobler/spock-site-build.git /tmp/spock-site-build
-cp current.html /tmp/spock-site-build/ledger/index.html
+cp "$PROJDIR/current.html" /tmp/spock-site-build/ledger/index.html
 cd /tmp/spock-site-build
 git config user.name "Roger Grobler"
 git config user.email "roger@ccap.ai"

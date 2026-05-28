@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.rogergrobler.ledger</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/rogergrobler/code/claude-project-ledger/scripts/ledger-cron.sh</string>
+  </array>
+
+  <!--
+    Three fires per day in SAST (system tz is Africa/Johannesburg):
+      06:30 — morning briefing before the day starts
+      13:00 — post-lunch midday snapshot
+      21:00 — evening reset before bed
+
+    launchd uses the system time zone for StartCalendarInterval. If the
+    machine ever moves out of Africa/Johannesburg, edit these hours or
+    convert to UTC and adjust.
+  -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key><integer>6</integer>
+      <key>Minute</key><integer>30</integer>
+    </dict>
+    <dict>
+      <key>Hour</key><integer>13</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key><integer>21</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+  </array>
+
+  <!-- launchd-level stdout/stderr (one combined log; per-fire detail is in cron-logs/) -->
+  <key>StandardOutPath</key>
+  <string>/Users/rogergrobler/Documents/Claude/Projects/Project Ledger/project_ledger/cron-logs/launchd-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/rogergrobler/Documents/Claude/Projects/Project Ledger/project_ledger/cron-logs/launchd-stderr.log</string>
+
+  <!--
+    PATH needs to include git, curl, and the claude binary location.
+    /Users/rogergrobler/.local/bin holds claude; /opt/homebrew/bin has gh + git.
+  -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/rogergrobler/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/rogergrobler</string>
+  </dict>
+
+  <!-- Don't run more than one fire at a time if a previous one is still going. -->
+  <key>AbandonProcessGroup</key>
+  <false/>
+
+  <!-- Run with the user's login session privileges, not as root. -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
