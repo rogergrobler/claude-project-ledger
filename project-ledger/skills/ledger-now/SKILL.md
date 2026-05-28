@@ -31,8 +31,11 @@ Then narrate the recovery so Roger knows.
 Launch a single general-purpose agent IN THE BACKGROUND with the full sweep prompt (see `references/sweep-prompt.md` in this skill directory if you need the canonical version). The agent must:
 
 **WhatsApp — MANDATORY contacts, sweep on EVERY fire (no exceptions):**
-- **Isa De Villiers · `27721818934@s.whatsapp.net`** — Roger's executive assistant; carries critical operational items (payments, calendar moves, valuation sign-offs, family logistics). She uses the convention `Spock: <message>` to flag items she expects on the dashboard. Pull her thread with `mcp__whatsapp__list_messages` covering at minimum the last 24 hours and the entire most recent thread, even if list_chats doesn't surface her name in the top-10. **A sweep that omits Isa is a failed sweep — flag the omission in the digest and treat it as a source error.**
-- **Elca / Alabama · `919908732597@s.whatsapp.net`** (saved as "Alabama 🎈✨🙏🏾") — Roger's wife. Family logistics, Camp David, household. Same rule: pull her thread directly, every fire, regardless of what list_chats returns.
+- **Isa De Villiers (DM) · `27721818934@s.whatsapp.net`** — Roger's executive assistant; carries critical operational items (payments, calendar moves, valuation sign-offs, family logistics). She uses the convention `Spock: <message>` to flag items she expects on the dashboard. Pull her thread with `mcp__whatsapp__list_messages` covering at minimum the last 24 hours and the entire most recent thread, even if list_chats doesn't surface her name in the top-10.
+- **Isa Projects (group) · `919908732597-1543670455@g.us`** — three-way group with Isa + Elca; coordinates family logistics, Camp David shipping, household projects. Often carries decisions that don't appear in either DM. Pull this group's messages directly every fire.
+- **Elca / Alabama (DM) · `919908732597@s.whatsapp.net`** (saved as "Alabama 🎈✨🙏🏾") — Roger's wife. Family logistics, Camp David, household. Same rule: pull her DM thread directly, every fire, regardless of what list_chats returns.
+
+**A sweep that omits any one of these three threads is a failed sweep — name the gap loudly in the digest under "Source errors" and treat it as blocking. Do not silently publish with these missing.**
 
 **WhatsApp — general sweep:**
 - After the two mandatory contacts above, pull `mcp__whatsapp__list_chats` with limit 10 and `mcp__whatsapp__list_messages` per active chat for the last 24 hours.
