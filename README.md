@@ -91,6 +91,23 @@ rm ~/Library/LaunchAgents/com.rogergrobler.ledger.plist
 
 The plist + launchctl path is macOS-specific. For Linux, port to systemd (`~/.config/systemd/user/ledger.timer` + `ledger.service`) or cron — the `ledger-cron.sh` script is portable.
 
+### Always-on cloud scheduler
+
+The Mac sleeps. launchd doesn't wake it. For trip-resilient scheduling, run the cron on a DigitalOcean droplet alongside the Mac launchd. See `docs/cloud-scheduler-setup.md` for the 30-min turnkey setup. The provisioner is at `scripts/provision-cloud-scheduler.sh`. Both hosts fire on the same schedule; when both run, the second overwrites the first; when the Mac is asleep, the cloud edition stands.
+
+## Design + plumbing docs
+
+- [`docs/design-review-2026-06-03.md`](docs/design-review-2026-06-03.md) — three-week dogfood audit with ranked improvements.
+- [`docs/cloud-scheduler-setup.md`](docs/cloud-scheduler-setup.md) — turnkey DigitalOcean setup for trip-resilient scheduling.
+
+## v0.2 notes
+
+- **Tip-block rotation** — was static HTML across every edition. Fix queued via `scripts/rotate-tip.py` + a Step 3a in `ledger-now` SKILL.md.
+- **Days-carrying signal** — FP cards now carry `data-first-seen` and auto-render "Day N" pills + stale styling at 14+ days. Implemented in `current.html`'s render-layer; SKILL.md Step 3b describes the discipline.
+- **Status-verification discipline** — SKILL.md Step 3c codifies "verify before inheriting" to prevent the kind of misclassification that carried Brendan/Lima Tyme D1 as "closed" for three editions when it wasn't.
+- **Honest routing instructions** — the "Send to Claude" payload now describes only what's actually wired. Notion bucket-sync references removed.
+- **Pixel-friendly clipboard fallback** — `sendToClaude()` falls back to an inline modal with selectable textarea + tap-to-copy button instead of the awful `window.prompt`.
+
 ## Author
 
 Roger Grobler · roger.grobler@gmail.com

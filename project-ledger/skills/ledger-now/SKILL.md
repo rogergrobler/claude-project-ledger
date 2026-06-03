@@ -55,9 +55,38 @@ NO cached data. NO copying from the previous edition's notes. Fresh reads only.
 
 ### Step 3 — In parallel while the sweep runs
 
-Read `current.html` to confirm the structure (kicker, subtitle, dateline, lede, North Star NS cards, Front Page priority grid, Day cards, Pullquote, Footer). Identify what the new edition's kicker/version should be — increment the minor version (e.g., v1.14 → v1.15), set the slot label ("Wednesday morning", "Wednesday midday", "Wednesday evening", etc.) from the system clock in SAST.
+Read `current.html` to confirm the structure (kicker, subtitle, dateline, lede, tip-block, North Star NS cards, Front Page priority grid, Day cards, Pullquote, Footer). Identify what the new edition's kicker/version should be — increment the minor version (e.g., v1.24 → v1.25), set the slot label ("Wednesday morning", "Wednesday midday", "Wednesday evening", etc.) from the system clock in SAST.
 
 Surface from the prior edition: any items marked done in a "Send to Claude" payload that should be cleared (act-* rows, FP cards). If no payload was supplied, leave done-state untouched.
+
+### Step 3a — Rotate the Claude Tip of the Day
+
+The `<details class="tip-block">` element in `current.html` is hand-authored HTML, not live-fetched. Every fire that does NOT rotate the tip silently breaks the implicit contract of "a fresh tip surfaces on the next dashboard" (which the verdict text explicitly promises when the user ticks 👍).
+
+On every fire:
+
+1. Read the current tip id from `current.html` — it's the `data-tip-id` attribute on the `<details class="tip-block">` element.
+2. Read `~/.project_ledger/tip-history.json` if it exists — format `{"shown": [...], "current": "..."}` — to know which tips have already been shown.
+3. Query the Notion "🎓 Claude Tips Backlog" database (data source `114727aa-c905-40fc-9d5b-c76342f93189`) for the next entry whose Status is "Backlog" and whose page ID is not in `shown` or `current`. Sort by Priority ascending. If none remain, restart from the top of the backlog (and clear `shown` to acknowledge the cycle).
+4. Render the new tip into the canonical block format via `scripts/rotate-tip.py` — pipe the tip JSON to its stdin. The script rewrites the `<details class="tip-block">` block in place and updates the history file.
+
+The tip JSON expected by `rotate-tip.py` is documented in its docstring; minimum keys are `id`, `feature`, `title`, `summary_meta`, `hook`, `what_it_does`, `why_high_leverage`, `tags`, `steps_html`, `tiein`, `source_url`.
+
+Mark the previously-shown tip's Status in Notion based on the user's localStorage vote if known (👍 → "Live", 👎 → "Skipped" with Skip Reason). If the vote isn't observable from the headless session, leave the prior tip's Status alone.
+
+### Step 3b — Days-carrying signal on FP cards
+
+Every Front Page card must carry a `data-first-seen="YYYY-MM-DD"` attribute (UTC date the item first surfaced on the dashboard, NOT today). The dashboard's render-layer auto-computes "Day N" + colour pill from this attribute on page load (`.days-carrying.fresh / .warm / .stale`).
+
+When adding a new FP card: set `data-first-seen` to today's UTC date. When carrying an existing card forward to a new edition: PRESERVE the existing `data-first-seen` value — do NOT reset it. The whole point is to surface how long an item has been carried unmoved.
+
+Items at Day 14+ get visual stale treatment automatically — italic body, dimmed title. This is the signal to the user that the item has been carrying without action. Use it; don't paper over it by rewriting the body each cycle.
+
+### Step 3c — Status-verification discipline
+
+The dashboard has misclassified thread state across multiple editions in the past (notable: v1.21–v1.23 called Brendan/Lima Tyme D1 "closed via Endeavor approval" when in fact only the Endeavor entity was approved and the Lima sub-fund recommendation was still owed).
+
+Hard rule: for every FP card carried from the prior edition, the sweep agent must verify the open/closed state of its underlying thread before this fire confirms it as still-open or still-closed. If the sweep returned ambiguous evidence, the card stays open and the meta line carries an `⚠ verify` flag. NEVER inherit the prior edition's status field uncritically.
 
 ### Step 4 — Merge sweep findings into `current.html`
 
@@ -118,3 +147,5 @@ Three-line summary:
 - Never push to `main` of `spock-site-build` if the build fails any sanity check (file size collapses to <10 KB; HTML is malformed; the version tag wasn't actually injected). Stop and report.
 - If a sweep MCP source errors out, proceed with the rest and disclose the gap in the published edition's footer.
 - If pre-existing `current.html` is more recent than the snapshot (clock skew, manual edit), preserve it — don't overwrite blindly.
+- The "Send to Claude" payload's routing instructions are limited to: apply done items, drop them from FP, carry notes into NS card bodies, add new tasks, draft replies, update NS cards. Do NOT echo back routing actions that aren't actually wired (e.g. Notion bucket sync, North Star DB updates) — that infrastructure isn't built and pretending it is breaks user trust.
+- The scheduler-host architecture is documented in `docs/cloud-scheduler-setup.md`. When the user asks about scheduling reliability, point at the doc — don't re-invent the answer.
