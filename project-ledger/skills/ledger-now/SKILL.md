@@ -149,4 +149,15 @@ Three-line summary:
 - If pre-existing `current.html` is more recent than the snapshot (clock skew, manual edit), preserve it — don't overwrite blindly.
 - The "Send to Claude" payload's routing instructions are limited to: apply done items, drop them from FP, carry notes into NS card bodies, add new tasks, draft replies, update NS cards. Do NOT echo back routing actions that aren't actually wired (e.g. Notion bucket sync, North Star DB updates) — that infrastructure isn't built and pretending it is breaks user trust.
 - The scheduler-host architecture is documented in `docs/cloud-scheduler-setup.md`. When the user asks about scheduling reliability, point at the doc — don't re-invent the answer.
-- **Timestamp discipline**: the `last-calibrated`, kicker time, subtitle time, dateline edition slot, inbox header, footer compiled-at line, and pullquote opening clock-time all reflect the moment of `git push origin main` to spock-site-build, NOT the moment editing started. If editing takes 2+ hours, re-query `TZ='Africa/Johannesburg' date '+%H:%M SAST'` immediately before the snapshot copy, write it into the seven anchors, then push. This avoids the v1.25 mistake where the timestamp was 4 hours behind the actual ship.
+- **Timestamp discipline**: there are NINE anchors in `current.html` that carry the edition's publish-time clock. All nine must reflect `TZ='Africa/Johannesburg' date '+%H:%M SAST'` queried at the moment of `git push origin main`, NOT at the moment editing started. Re-query immediately before the snapshot copy. The full list:
+  1. `<div class="kicker">` time-of-day phrase (e.g. "Wednesday Midday")
+  2. `<div class="subtitle">` "Compiled HH:MM SAST" opening
+  3. `<span id="dateline-edition">` slot label ("Wednesday midday")
+  4. `<span class="ns-last-calibrated">` "Last calibrated DD Month YYYY HH:MM SAST"
+  5. `<div class="inbox-strip-hed">` "(slot · DD Month HH:MM SAST · status)"
+  6. `<div class="lede"><h2>` opening clock ("Wednesday, 13:01 — ...")
+  7. `<div class="week-banner">Now · …</div>` clock in the day-card section
+  8. `<div class="footer-text">` "Compiled HH:MM SAST · location · DD Month MMXXVI · version (slot)"
+  9. `<div class="pullquote">` opening clock-and-context ("Wednesday midday, 13:01.")
+- **Timestamp exception — `Swept HH:MM SAST`** in the lede paragraphs is the HISTORICAL timestamp of when the sweep agent pulled data. Do NOT auto-bump this when the edition is re-published later. If the sweep ran at 08:32 and the ship completes at 13:01, the lede correctly shows `Swept 08:32 SAST` AND `Compiled 13:01 SAST` (subtitle/footer/last-calibrated). They are different semantic facts.
+- The v1.25 mistake was setting "Compiled 08:32 SAST" at edit-start, finishing the ship at 13:01, then publishing without re-bumping the nine anchors. Don't repeat it.
