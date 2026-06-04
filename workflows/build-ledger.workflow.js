@@ -39,7 +39,7 @@ export const meta = {
   ],
 }
 
-// ── Phase 0: scout the current state (inline, no agent) ─────────────────────
+// ── Phase 0: scout the current state + WhatsApp MCP pre-flight ─────────────
 
 phase('Sweep')
 
@@ -51,6 +51,66 @@ const CONTEXT = `Roger Grobler, Partner at Chronos Capital Advisory in Stellenbo
 The Stellenbosch Ledger is his personal dashboard, published to ${LIVE_URL}.
 This workflow rebuilds it from scratch using fresh sweeps across his integrated
 data sources.`
+
+// Notion infrastructure IDs (verified to exist on 2026-06-04). The synthesize
+// phase reads from these; the apply phase can route done items back to them
+// once that integration is built (TODO).
+const NOTION_IDS = {
+  bucket_signatures: '33d493ab-3bff-81a1-aecb-c1b998a39e45',  // 📝 Signatures Pending
+  bucket_payments:   '33d493ab-3bff-81bc-8927-df11c7deb1ca',  // 💰 Payments Pending
+  bucket_reviews:    '33d493ab-3bff-8112-8f04-dec55d9c1d78',  // 👁 Reviews Pending
+  bucket_respond:    '33d493ab-3bff-8170-b840-ef21c53d9025',  // 📧 Respond Pending
+  bottlenecks_page:  '35f493ab-3bff-813c-bb48-c595787bbd21',  // 🚧 Bottlenecks
+  people_db:         '2ef493ab-3bff-802d-981c-e12fec6885c7',  // People DB (no Important field yet)
+  north_stars_db:    '5fe56ac2-2289-4b1b-b30a-4f589f100634',  // 🎯 North Stars
+  active_goals:      '326493ab-3bff-8191-b727-d9cf80d7513a',  // 🎯 Active Goals — Weekly Scorecard
+  tips_backlog:      '114727aa-c905-40fc-9d5b-c76342f93189',  // 🎓 Claude Tips Backlog (data source)
+}
+
+// ── Phase 0.5: WhatsApp MCP pre-flight ─────────────────────────────────────
+// WhatsApp is Roger's main comms layer. If the MCP/bridge is stuck (auth
+// expired, daemon dead, db stale), every WhatsApp sweep silently returns
+// empty and the dashboard publishes with invisible-blindness. Pre-flight
+// catches this before the sweep wastes 6 agents producing useless output.
+
+const preflight = await agent(
+  `Verify the WhatsApp MCP is healthy before the sweep runs.
+
+Step 1: Call mcp__whatsapp__list_chats with limit=1 and sort_by="last_active".
+Step 2: Inspect the result. If empty, the MCP is dead. If non-empty, look at
+the top chat's last_message_time. If it's older than 6 hours from now (use
+TZ=Africa/Johannesburg date '+%s' via Bash to know "now"), the bridge has
+stopped syncing and the dashboard would publish with stale WhatsApp data.
+Step 3: Return a structured assessment.
+
+If the bridge is stale, ALSO call mcp__7cf2ebb5-ae5a-4a10-9ec8-1272580794b5__notion-create-comment
+to post a comment on Roger's Spock root page (id 2ef493ab-3bff-803e-91b0-f832778a2dd4)
+saying "WhatsApp MCP is stale (last_message_time = X). Bridge likely needs
+re-pair. Run: tail -30 ~/spock/logs/bridge.out.log to see the QR." That way
+Roger has a clear flag waiting for him next time he opens Notion.
+
+${CONTEXT}`,
+  {
+    label: 'whatsapp-preflight',
+    phase: 'Sweep',
+    schema: {
+      type: 'object',
+      properties: {
+        healthy: { type: 'boolean' },
+        last_message_time: { type: 'string', description: 'ISO timestamp of newest WhatsApp message visible' },
+        staleness_hours: { type: 'number' },
+        reason: { type: 'string', description: 'one-line explanation' },
+      },
+      required: ['healthy', 'reason'],
+    },
+  }
+)
+
+log(preflight.healthy
+    ? `WhatsApp MCP healthy (newest msg: ${preflight.last_message_time})`
+    : `⚠ WhatsApp MCP STALE — ${preflight.reason}. Sweep will continue but flag the gap in the published edition's footer.`)
+
+const WHATSAPP_HEALTHY = preflight.healthy
 
 // ── Sweep schema: every source returns the same shape ──────────────────────
 
@@ -193,10 +253,44 @@ const PATCH_SCHEMA = {
     open_items_summary: { type: 'string', description: 'one-line summary of what stays open this edition' },
     version_string: { type: 'string', description: 'e.g. v1.28' },
     slot_label: { type: 'string', description: 'e.g. "Thursday Late Afternoon"' },
+    // NEW v0.3 sections — produced by the synthesize phase, rendered into a
+    // dedicated dashboard band ABOVE the FP grid.
+    important_people_owed: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          why_important: { type: 'string', description: 'role/relationship grounding the importance call' },
+          last_inbound: { type: 'string', description: 'ISO timestamp or human-readable; what they sent and when' },
+          days_owed: { type: 'number' },
+          channel: { type: 'string', enum: ['gmail', 'whatsapp', 'notion', 'other'] },
+          action_url: { type: 'string' },
+        },
+        required: ['name', 'why_important', 'last_inbound', 'days_owed', 'channel'],
+      },
+      description: 'People in Roger\'s People DB tagged Portfolio/Investor/Advisor (proxy for "important" until the Important field exists), or who appear in Active Goals/Projects, who sent something Roger has not responded to. Sort by days_owed descending.',
+    },
+    roger_bottlenecks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          who_is_blocked: { type: 'string', description: 'person or team waiting on Roger' },
+          on_what: { type: 'string', description: 'specific decision, signature, payment, review, response' },
+          north_star: { type: 'string', enum: ['chronos', 'portfolio', 'family', 'inner-life', 'flywheel', 'spock', 'matterhorn'] },
+          relevant_project: { type: 'string', description: 'which active project this sits in, if any' },
+          days_blocked: { type: 'number' },
+          downstream_cost: { type: 'string', description: 'plain-English consequence of the delay (one line)' },
+        },
+        required: ['who_is_blocked', 'on_what', 'north_star', 'days_blocked'],
+      },
+      description: 'Bottlenecks Roger is creating right now — items where multiple downstream people/processes are waiting on a Roger decision/action. Derived by cross-referencing the 4 Notion bucket pages (Signatures, Payments, Reviews, Respond) with the North Star spine and the active projects list. Sort by downstream_cost severity, then by days_blocked.',
+    },
   },
   required: ['kicker', 'subtitle', 'lede_h2', 'fp_cards_add', 'fp_cards_drop', 'fp_cards_update_meta',
              'ns_card_updates', 'pullquote', 'footer_audit', 'open_items_summary',
-             'version_string', 'slot_label'],
+             'version_string', 'slot_label', 'important_people_owed', 'roger_bottlenecks'],
 }
 
 const synthPrompt = `Synthesize the sweep digest below into a structured patch for the dashboard.
@@ -215,6 +309,67 @@ ${JSON.stringify(sources, null, 2)}
 
 Optional "Send to Claude" payload from Roger (apply these as drops/updates):
 ${args?.payload_done ? JSON.stringify(args.payload_done, null, 2) : '(none — leave done-state untouched)'}
+
+WhatsApp MCP health check:
+${JSON.stringify(preflight, null, 2)}
+${WHATSAPP_HEALTHY ? '' : '⚠ Disclose the WhatsApp staleness in the footer_audit — Roger needs to see when his sweeps are partial.'}
+
+## NEW v0.3 sections — important_people_owed + roger_bottlenecks
+
+### important_people_owed
+
+Cross-reference the Gmail + WhatsApp sweep deltas against Roger's Notion People DB
+(${NOTION_IDS.people_db}) to surface PEOPLE WHO HAVE SENT SOMETHING ROGER HAS NOT RESPONDED TO.
+
+The People DB does NOT yet have an explicit "Important" field. Use this proxy
+until one is added:
+1. People tagged with Relationship Type ∈ {Portfolio, Investor, Advisor} are
+   important by default.
+2. People who appear in Active Goals (${NOTION_IDS.active_goals}) or in current
+   project relations are important.
+3. People who have a Last Interaction within the last 30 days are likely active
+   relationships — these are weighted higher.
+4. SERVICE_PROVIDER and stale (Last Interaction > 90 days) people are NOT
+   important by default, unless they're escalating.
+
+For each important person with unanswered inbound (Gmail thread where Roger
+hasn't sent the latest message, or WhatsApp where Roger hasn't replied):
+- Pull their Name, Role/Organisation from the People DB
+- Note when they last contacted Roger and through which channel
+- Compute days_owed = now − last_inbound_time
+
+Sort by days_owed descending. Cap at 8 entries (the top 8 longest-overdue
+important-people responses). If fewer than 8 exist, that's fine.
+
+### roger_bottlenecks
+
+A bottleneck is something where MULTIPLE DOWNSTREAM PEOPLE/PROCESSES are
+waiting on Roger to do one specific thing — sign, pay, review, decide,
+respond.
+
+Source the candidates from:
+- The 4 Notion bucket pages (Signatures: ${NOTION_IDS.bucket_signatures},
+  Payments: ${NOTION_IDS.bucket_payments}, Reviews: ${NOTION_IDS.bucket_reviews},
+  Respond: ${NOTION_IDS.bucket_respond}) — fetch their Open sections via
+  mcp__7cf2ebb5...__notion-fetch.
+- The existing Bottlenecks page (${NOTION_IDS.bottlenecks_page}) for entries
+  already noted there.
+- This sweep's deltas where status=action_owed or time_pressured.
+
+For each candidate, check the North Star spine (${NOTION_IDS.north_stars_db})
+and current project lists to ground:
+- Which NS does this serve?
+- What project does it sit in?
+- What's the downstream cost — what stops if Roger keeps not doing this?
+
+Sort by downstream_cost severity (catastrophic > significant > moderate >
+minor), then by days_blocked. Cap at 5 entries — anything beyond 5 is noise.
+
+These two sections will render as a dedicated band ABOVE the FP grid on the
+dashboard. The synthesize phase produces them; the apply phase materialises
+them.
+
+## Standard patch fields (kicker, subtitle, lede_h2, etc.)
 
 Return a structured patch matching the schema. The patch must specify:
 - The new kicker, subtitle, lede_h2, pullquote, footer_audit lines (these are 4 of the 9 timestamp anchors — they'll be rendered with the current SAST clock in Phase 4).

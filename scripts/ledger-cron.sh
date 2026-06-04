@@ -46,11 +46,14 @@ fi
 
 # --- fire --------------------------------------------------------------------
 
+# Strategy: prefer the build-ledger Workflow (deterministic 5-phase pipeline),
+# fall back to the /ledger-now slash command if the workflow path is unavailable
+# or exits non-zero. The fallback exists so a workflow-script bug doesn't leave
+# Roger with a stale dashboard for hours.
+#
 # `--print` runs a single non-interactive turn and exits.
-# `--dangerously-skip-permissions` is required because the skill writes files,
-#   shells out to git, pushes to origin, and curls the live URL. Roger's
-#   ~/.claude/settings.json already sets skipDangerousModePermissionPrompt:true
-#   for interactive use; this is the headless equivalent.
+# `--dangerously-skip-permissions` is required because the workflow/skill
+#   writes files, shells out to git, pushes to origin, and curls the live URL.
 # We cd to $HOME so the session's cwd is stable and predictable.
 
 cd "$HOME"
@@ -62,19 +65,58 @@ cd "$HOME"
 unset CLAUDECODE
 unset CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
 
-{
-  echo ""
-  echo "--- claude --print '/ledger-now' ---"
-  echo ""
-} >> "$LOG"
+WORKFLOW_PATH="$HOME/code/claude-project-ledger/workflows/build-ledger.workflow.js"
 
-"$CLAUDE_BIN" \
-  --print \
-  --dangerously-skip-permissions \
-  "/ledger-now" \
-  >> "$LOG" 2>&1
+if [[ -f "$WORKFLOW_PATH" ]]; then
+  {
+    echo ""
+    echo "--- Path A: build-ledger workflow ---"
+    echo "Workflow file: $WORKFLOW_PATH"
+    echo ""
+  } >> "$LOG"
 
-EXIT_CODE=$?
+  "$CLAUDE_BIN" \
+    --print \
+    --dangerously-skip-permissions \
+    "Run the build-ledger workflow at $WORKFLOW_PATH. This is the canonical Stellenbosch Ledger refresh — the 5-phase deterministic pipeline (Sweep, Synthesize, RotateTip, Apply, Publish). Use the Workflow tool with scriptPath set to that path." \
+    >> "$LOG" 2>&1
+
+  EXIT_CODE=$?
+
+  if [[ $EXIT_CODE -ne 0 ]]; then
+    {
+      echo ""
+      echo "--- Path A FAILED (exit $EXIT_CODE) — falling back to /ledger-now ---"
+      echo ""
+    } >> "$LOG"
+
+    "$CLAUDE_BIN" \
+      --print \
+      --dangerously-skip-permissions \
+      "/ledger-now" \
+      >> "$LOG" 2>&1
+
+    EXIT_CODE=$?
+    {
+      echo ""
+      echo "--- Path B (fallback) exit: $EXIT_CODE ---"
+    } >> "$LOG"
+  fi
+else
+  {
+    echo ""
+    echo "--- Workflow script not found, using /ledger-now ---"
+    echo ""
+  } >> "$LOG"
+
+  "$CLAUDE_BIN" \
+    --print \
+    --dangerously-skip-permissions \
+    "/ledger-now" \
+    >> "$LOG" 2>&1
+
+  EXIT_CODE=$?
+fi
 
 {
   echo ""
