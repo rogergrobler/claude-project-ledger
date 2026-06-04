@@ -31,11 +31,12 @@ export const meta = {
   name: 'build-ledger',
   description: 'Stellenbosch Ledger end-to-end build pipeline — parallel sweep, synthesize, tip rotation, apply, publish, notify. Replaces the hand-curated rebuild path so every refresh follows the same gates.',
   phases: [
-    { title: 'Sweep',      detail: '6 parallel agents across WhatsApp (3 mandatory + self-chat) + Gmail + Calendar + Notion + Drive' },
-    { title: 'Synthesize', detail: 'merge deltas into structured patches for FP cards, NS cards, and the lede' },
-    { title: 'RotateTip',  detail: 'query Notion Tips Backlog for next unticked entry' },
-    { title: 'Apply',      detail: 'apply patches + bump all 9 timestamp anchors + write current.html' },
-    { title: 'Publish',    detail: 'snapshot + git clone spock-site-build + commit + push + poll for live' },
+    { title: 'Sweep',         detail: '6 parallel agents across WhatsApp (3 mandatory + self-chat) + Gmail + Calendar + Notion + Drive' },
+    { title: 'Synthesize',    detail: 'merge deltas into structured patches for FP cards, NS cards, and the lede' },
+    { title: 'ChiefOfStaff',  detail: 'NS-spine state + top-N today + optional WhatsApp question; calibrated to 75% completion confidence' },
+    { title: 'RotateTip',     detail: 'query Notion Tips Backlog for next unticked entry' },
+    { title: 'Apply',         detail: 'apply patches + bump all 9 timestamp anchors + write current.html' },
+    { title: 'Publish',       detail: 'snapshot + git clone spock-site-build + commit + push + poll for live' },
   ],
 }
 
@@ -52,19 +53,24 @@ The Stellenbosch Ledger is his personal dashboard, published to ${LIVE_URL}.
 This workflow rebuilds it from scratch using fresh sweeps across his integrated
 data sources.`
 
-// Notion infrastructure IDs (verified to exist on 2026-06-04). The synthesize
-// phase reads from these; the apply phase can route done items back to them
-// once that integration is built (TODO).
+// Notion infrastructure IDs (verified to exist on 2026-06-04).
 const NOTION_IDS = {
-  bucket_signatures: '33d493ab-3bff-81a1-aecb-c1b998a39e45',  // 📝 Signatures Pending
-  bucket_payments:   '33d493ab-3bff-81bc-8927-df11c7deb1ca',  // 💰 Payments Pending
-  bucket_reviews:    '33d493ab-3bff-8112-8f04-dec55d9c1d78',  // 👁 Reviews Pending
-  bucket_respond:    '33d493ab-3bff-8170-b840-ef21c53d9025',  // 📧 Respond Pending
-  bottlenecks_page:  '35f493ab-3bff-813c-bb48-c595787bbd21',  // 🚧 Bottlenecks
-  people_db:         '2ef493ab-3bff-802d-981c-e12fec6885c7',  // People DB (no Important field yet)
-  north_stars_db:    '5fe56ac2-2289-4b1b-b30a-4f589f100634',  // 🎯 North Stars
-  active_goals:      '326493ab-3bff-8191-b727-d9cf80d7513a',  // 🎯 Active Goals — Weekly Scorecard
-  tips_backlog:      '114727aa-c905-40fc-9d5b-c76342f93189',  // 🎓 Claude Tips Backlog (data source)
+  bucket_signatures:    '33d493ab-3bff-81a1-aecb-c1b998a39e45',  // 📝 Signatures Pending
+  bucket_payments:      '33d493ab-3bff-81bc-8927-df11c7deb1ca',  // 💰 Payments Pending
+  bucket_reviews:       '33d493ab-3bff-8112-8f04-dec55d9c1d78',  // 👁 Reviews Pending
+  bucket_respond:       '33d493ab-3bff-8170-b840-ef21c53d9025',  // 📧 Respond Pending
+  bottlenecks_page:     '35f493ab-3bff-813c-bb48-c595787bbd21',  // 🚧 Bottlenecks
+  people_db:            '2ef493ab-3bff-802d-981c-e12fec6885c7',  // Shared People DB
+  projects_db:          '2ef493ab-3bff-8083-9fb6-d891d53796d4',  // Projects DB
+  north_stars_db:       '5fe56ac2-2289-4b1b-b30a-4f589f100634',  // 🎯 North Stars
+  active_goals:         '326493ab-3bff-8191-b727-d9cf80d7513a',  // 🎯 Active Goals — Weekly Scorecard
+  tips_backlog:         '114727aa-c905-40fc-9d5b-c76342f93189',  // 🎓 Claude Tips Backlog (data source)
+  // Chief of Staff infrastructure (created 4 Jun 2026, under "🧠 Claude Context — Roger Private")
+  cos_importance_db:    '8bef271818ef4b46b7311eacf1f5c3e5',     // 🌟 Roger's People — Importance Layer (PRIVATE)
+  cos_decisions_log:    '375493ab-3bff-8110-a675-fc2821c73e7f', // 🧠 CoS — Specific Decisions (append-only)
+  cos_generalised_rules:'375493ab-3bff-818f-b34c-ca3acfca77f1', // 🧠 CoS — Generalised Rules
+  cos_design:           '375493ab-3bff-81be-9e61-d399538842ca', // 🧠 CoS — Design (canonical)
+  roger_self_chat:      '27663116507@s.whatsapp.net',            // Q&A loop channel
 }
 
 // ── Phase 0.5: WhatsApp MCP pre-flight ─────────────────────────────────────
@@ -388,6 +394,170 @@ const patch = await agent(synthPrompt, {
 
 log(`Patch synthesized: ${patch.fp_cards_add?.length || 0} new FP cards, ${patch.fp_cards_drop?.length || 0} dropped, ${patch.ns_card_updates?.length || 0} NS updates.`)
 
+// ── Phase 2.5: Chief of Staff ──────────────────────────────────────────────
+// Roger's call (4 Jun 2026): the dashboard had become a laundry list.
+// The CoS sits above the synthesize patch and decides what actually surfaces
+// at the TOP of the dashboard. Hard constraints:
+//   - NS spine: 3 lines per star, no more (status + current focus + next move)
+//   - Top-N today: variable N, calibrated to ~75% completion confidence
+//     given today's calendar density. Plus revealed-preference learning —
+//     items repeatedly ignored get demoted.
+//   - At most one question per fire — using the bundled framing pattern
+//     (meta-priority Q first, drill-down via Roger's answer). Sent to
+//     WhatsApp self-chat. Inbound answer parsed by next fire's sweep.
+//   - Two-layer memory: specific decisions log (append-only) + generalised
+//     rules (extracted weekly by a meta-agent).
+//
+// See ${NOTION_IDS.cos_design} for the canonical design.
+
+phase('ChiefOfStaff')
+
+const COS_SCHEMA = {
+  type: 'object',
+  properties: {
+    ns_spine: {
+      type: 'array',
+      description: '7 entries, one per North Star. Hard cap of 3 lines per star — keeps the dashboard glanceable.',
+      items: {
+        type: 'object',
+        properties: {
+          ns: { type: 'string', enum: ['family', 'matterhorn', 'chronos', 'spock', 'portfolio', 'inner-life', 'flywheel'] },
+          status: { type: 'string', enum: ['on-track', 'drifting', 'at-risk'] },
+          current_focus: { type: 'string', description: 'one line — what the principal frame is doing this season' },
+          next_move: { type: 'string', description: 'one line — the next specific action that moves this NS forward' },
+        },
+        required: ['ns', 'status', 'current_focus', 'next_move'],
+      },
+    },
+    do_this_now: {
+      type: 'array',
+      description: 'Top-N actions for today. Variable N (typically 3-7), calibrated to ~75% completion confidence given today\'s calendar density.',
+      items: {
+        type: 'object',
+        properties: {
+          rank: { type: 'number' },
+          action: { type: 'string', description: 'one line, imperative voice — "Reply Willem Els on FinDev confirm"' },
+          ns: { type: 'string', enum: ['family', 'matterhorn', 'chronos', 'spock', 'portfolio', 'inner-life', 'flywheel'] },
+          effort_min: { type: 'number', description: 'estimated minutes' },
+          why_now: { type: 'string', description: 'one line — why this specific item makes the top-N today' },
+          rule_applied: { type: 'string', description: 'rule_id if a generalised rule fired, else null' },
+        },
+        required: ['rank', 'action', 'ns', 'effort_min', 'why_now'],
+      },
+    },
+    target_n: {
+      type: 'number',
+      description: 'The N you chose. Should match do_this_now.length.',
+    },
+    calendar_density: {
+      type: 'string',
+      enum: ['light', 'medium', 'heavy'],
+      description: 'How packed today is. Heavy days → smaller N.',
+    },
+    cos_question: {
+      type: 'object',
+      description: 'At most ONE question per fire, only if uncertainty is high AND consequence is high. Use the bundled framing (meta-priority first, drill-down via Roger\'s answer).',
+      properties: {
+        q_id: { type: 'string', description: 'e.g. "Q-13" — must increment from the highest q_id in the decisions log' },
+        topic: { type: 'string', description: 'short topic line' },
+        situation: { type: 'string', description: '2 lines max — recent context grounding the question' },
+        options: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '2-3 concrete options Roger can pick from. Last option should be "other / explain" for open answers.',
+        },
+        send_to_whatsapp: { type: 'boolean', description: 'true if this should fire as a WhatsApp message to roger_self_chat NOW' },
+      },
+      required: ['q_id', 'topic', 'situation', 'options', 'send_to_whatsapp'],
+    },
+    demotions: {
+      type: 'array',
+      description: 'FP cards or carry-forward items that REVEALED-PREFERENCE data suggests Roger doesn\'t actually want surfaced (appeared in top-N for 3+ fires without being marked done).',
+      items: {
+        type: 'object',
+        properties: {
+          card_id: { type: 'string' },
+          reason: { type: 'string', description: 'one line — why we\'re demoting' },
+          fires_ignored: { type: 'number' },
+        },
+        required: ['card_id', 'reason'],
+      },
+    },
+    rules_applied_this_fire: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'rule_ids of generalised rules that fired this run. Used to populate the apply phase\'s "rule trace" so Roger can audit.',
+    },
+  },
+  required: ['ns_spine', 'do_this_now', 'target_n', 'calendar_density', 'demotions', 'rules_applied_this_fire'],
+}
+
+const cosPrompt = `You are Roger's Chief of Staff. The dashboard has become a laundry list — your job is to fix that by deciding what actually surfaces at the top.
+
+You read the following inputs:
+1. Sweep deltas (today's inbound across 6 sources)
+2. The synthesize patch produced this fire
+3. North Stars database: ${NOTION_IDS.north_stars_db}
+4. Projects database (filter to Project Status = Active): ${NOTION_IDS.projects_db}
+5. Roger's private People-Importance Layer: ${NOTION_IDS.cos_importance_db} (his PRIVATE rating; do not consult the shared People DB for importance, only for facts)
+6. Four bucket pages: Signatures (${NOTION_IDS.bucket_signatures}), Payments (${NOTION_IDS.bucket_payments}), Reviews (${NOTION_IDS.bucket_reviews}), Respond (${NOTION_IDS.bucket_respond})
+7. Specific Decisions log: ${NOTION_IDS.cos_decisions_log} (every past Q&A Roger has answered)
+8. Generalised Rules: ${NOTION_IDS.cos_generalised_rules} (rules extracted from the decisions log; apply rules with status="active" and high confidence)
+9. Today's calendar (via mcp__70bd15a3-8278-4771-b9a6-8282063bf947__list_events)
+10. Yesterday's dashboard state (what was in top-N, what got done vs ignored)
+
+You produce:
+
+## NS spine
+7 entries, one per North Star. HARD CAP: status + 1-line current focus + 1-line next move. Total 3 lines per star. No essay bodies.
+
+## do_this_now (top-N)
+Pick N (variable) such that P(Roger completes all N today) ≈ 75%. To estimate:
+- Pull today's calendar for "deep work budget" (hours minus meetings)
+- Estimate effort per candidate (small ≤15min, medium ≤45min, large ≥60min)
+- Look at yesterday's completion rate as a baseline
+
+REVEALED-PREFERENCE RULE: if a card has been in top-N for ≥3 consecutive fires without being marked done, demote it (add to demotions array) unless the situation has fundamentally changed (sweep evidence). Don't surface stale items — that's the laundry-list trap.
+
+Use the importance layer + the active projects + the buckets to ground priority. People with Importance 3 trump everyone else. Items in active projects beat orphan items. Bucket items where consequences cascade (multiple people blocked) beat solo items.
+
+## cos_question (at most one)
+A 2×2:
+                    | Low uncertainty | High uncertainty
+High consequence    | Act, mention    | ASK
+Low consequence     | Act silently    | Pick default, log for review
+
+Only ask when: high uncertainty + high consequence. Default: do NOT ask (this is Roger's stated preference — quality of questions over quantity).
+
+If you ask:
+- q_id = "Q-{N}" where N = highest q_id in cos_decisions_log + 1
+- Use the bundled framing pattern (Q6c from Roger's design): one meta-priority question that drills down based on the answer. NOT three parallel questions.
+- Set send_to_whatsapp=true; the apply phase will fire mcp__whatsapp__send_message to ${NOTION_IDS.roger_self_chat}.
+
+## rules_applied_this_fire
+For each generalised rule (status="active") whose trigger_shape matches a candidate today, list the rule_id. The apply phase will note these in the dashboard footer so Roger can audit which rules are firing.
+
+## demotions
+Per the revealed-preference rule above.
+
+Sweep digest:
+${JSON.stringify(sources, null, 2).slice(0, 4000)}...
+
+Synthesize patch:
+${JSON.stringify(patch, null, 2).slice(0, 4000)}...
+
+Return the structured output. Stay disciplined: NS spine 3 lines per star, top-N calibrated to 75%, at most one question, demote stale items aggressively.
+
+${CONTEXT}`
+
+const cos = await agent(cosPrompt, {
+  label: 'chief-of-staff',
+  phase: 'ChiefOfStaff',
+  schema: COS_SCHEMA,
+})
+
+log(`CoS produced: target_n=${cos.target_n}, calendar_density=${cos.calendar_density}, question=${cos.cos_question ? cos.cos_question.q_id : 'none'}, demotions=${cos.demotions?.length || 0}, rules_applied=${cos.rules_applied_this_fire?.length || 0}`)
+
 // ── Phase 3: Rotate the Claude Tip of the Day ─────────────────────────────
 
 phase('RotateTip')
@@ -462,17 +632,34 @@ const applyPrompt = `Apply the structured patch to ${PROJECT_LEDGER_DIR}/current
 Patch:
 ${JSON.stringify(patch, null, 2)}
 
+Chief of Staff output (THIS DRIVES THE TOP-OF-DASHBOARD REDESIGN):
+${JSON.stringify(cos, null, 2)}
+
 ${tipRotated ? `New tip block to insert (rewrite the existing <details class="tip-block">):
 ${JSON.stringify(tip, null, 2)}` : '(Tip rotation skipped — leave the existing tip block alone.)'}
 
 Steps:
+
 1. Read current.html.
-2. Apply fp_cards_drop: remove each card by data-id (use a Python helper or sed for clean removal).
-3. Apply fp_cards_update_meta: replace just the .card-meta line for each id.
-4. Apply fp_cards_add: insert new cards at the top of the priority-grid (fire cards above non-fire). Set data-first-seen to today's UTC date.
-5. Apply ns_card_updates: rewrite each NS card's body + NBA.
-6. ${tipRotated ? 'Rewrite the tip block using rotate-tip.py (pipe the tip JSON to its stdin).' : 'Skip tip block.'}
-7. Bump ALL 9 timestamp anchors with TZ='Africa/Johannesburg' date queried NOW (not at agent-start). The 9 anchors:
+
+2. Apply fp_cards_drop (from patch) + cos.demotions: remove each card by data-id.
+
+3. Apply fp_cards_update_meta: replace .card-meta line for each id.
+
+4. Apply fp_cards_add: insert new cards at top of priority-grid (fire cards above non-fire). Set data-first-seen to today's UTC date.
+
+5. Apply ns_card_updates: rewrite each NS card's body + NBA. ⚠ ENFORCE THE 3-LINE LIMIT — if a body or NBA exceeds 3 lines, COMPRESS IT before writing. Roger's call: NS cards must be glanceable.
+
+6. **NEW v0.4 — render CoS output into the top section above the FP grid:**
+   - The HTML scaffolding for #ns-spine-band, #do-this-now-band, #cos-question-band, #everything-else-toggle exists in current.html (see commit c00e19e and follow-ups). If a band is missing, create it as a child of <div class="masthead-section"> or similar.
+   - For each of cos.ns_spine[7], write to #ns-spine-band: "<div class='ns-spine-row'><span class='ns-tag ns-{ns}'>{ns}</span> · <span class='ns-status status-{status}'>{status}</span> · {current_focus} → <em>{next_move}</em></div>"
+   - For #do-this-now-band, write the cos.do_this_now items as an ordered list, with effort_min + ns badges + why_now tooltip.
+   - For #cos-question-band: if cos.cos_question exists, render it with the options as buttons. If null, hide the band (display: none).
+   - For #everything-else-toggle: collapse the existing FP grid + inbox + all-actions under a <details> block.
+
+7. ${tipRotated ? 'Rewrite the tip block using rotate-tip.py (pipe the tip JSON to its stdin).' : 'Skip tip block.'}
+
+8. Bump ALL 9 timestamp anchors with TZ='Africa/Johannesburg' date queried NOW. The 9 anchors:
    (1) kicker time-of-day (use patch.kicker, which already includes the slot)
    (2) subtitle "Compiled HH:MM SAST..." (prepend the time to patch.subtitle)
    (3) dateline-edition slot
@@ -482,10 +669,16 @@ Steps:
    (7) day-card "Now · …" week-banner
    (8) footer-text Compiled... line
    (9) pullquote opening clock
-   Re-query SAST IMMEDIATELY before the snapshot (Step 5 below).
-8. Verify size: must be > 50KB or abort. Verify no "Kevin Hardy" present. Verify version string updated.
+   Re-query SAST IMMEDIATELY before the snapshot (Phase 5).
 
-Use the Bash tool for the publish chain (don't use cd "path\\ with\\ space" — use absolute-path variables; that pattern silently fails). Refer to scripts/ledger-cron.sh and the ledger-now SKILL.md for the canonical publish block.
+9. **WhatsApp Q&A loop — send the CoS question if any:**
+   If cos.cos_question?.send_to_whatsapp is true, call mcp__whatsapp__send_message to ${NOTION_IDS.roger_self_chat} with this message body:
+   "🤔 ${cos.cos_question?.q_id || 'Q-?'} · ${cos.cos_question?.topic || ''}\\n${cos.cos_question?.situation || ''}\\n\\n${(cos.cos_question?.options || []).map((opt, i) => '(' + String.fromCharCode(97 + i) + ') ' + opt).join('\\n')}\\n\\nReply 'a' / 'b' / 'c {your thoughts}'."
+   Also append a new entry to the Specific Decisions Notion page (${NOTION_IDS.cos_decisions_log}) recording the question as "open, awaiting answer".
+
+10. Verify: file size > 50KB; no "Kevin Hardy"; version string updated. Abort if any check fails.
+
+Use the Bash tool for the publish chain (don't use cd "path\\ with\\ space" — use absolute-path variables; that pattern silently fails).
 
 ${CONTEXT}`
 
