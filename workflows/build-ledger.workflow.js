@@ -699,13 +699,14 @@ Steps:
 
 5. Apply ns_card_updates: rewrite each NS card's body + NBA. ⚠ ENFORCE THE 3-LINE LIMIT — if a body or NBA exceeds 3 lines, COMPRESS IT before writing. Roger's call: NS cards must be glanceable.
 
-6. **CoS output rendering — top section above the FP grid (v0.5, updated 5 Jun for interactive Do This Now):**
-   - HTML scaffolding for #ns-spine-band, #do-this-now-band, #cos-question-band, .everything-else exists in current.html.
-   - For each cos.ns_spine[7], write to #ns-spine-rows ONE row HTML: a div.ns-spine-row containing span.ns-tag.ns-NS NS · span.ns-status.status-STATUS STATUS · CURRENT_FOCUS arrow em NEXT_MOVE. HARD CAP 1 line per row.
-   - For #do-this-now-list, render EACH cos.do_this_now item as an INTERACTIVE LI (NOT a plain li). The exact HTML pattern is in current.html as of v1.33 — read one existing dtn-item from the live file and pattern-match for the rest. Structure overview: li.dtn-item with data-id/data-title/data-north-star, containing div.dtn-row with [div.dtn-tick.tick onclick=toggleDone + div.dtn-body containing div.dtn-title with span.effort + div.why-now + button.comment-toggle.dtn-comment-btn onclick=toggleComment] AND div.comment-box.dtn-comment-box containing textarea.comment-input oninput=saveComment.
-     The tick + comment + saveComment handlers already exist in the dashboard JS. Roger ticking these counts toward Send-to-Claude payload like FP cards.
+6. **CoS output rendering — the front page IS the Do This Now band (v0.6, updated 5 Jun):**
+   - The front page Roger reads = masthead + lede + the **Do This Now band**. That is the entire surface above the fold. Nothing else competes with it.
+   - **REMOVE the North Star Spine from the front page** (Roger's explicit call 5 Jun — "the NS Spine is still there that we said we're going to remove"). Set #ns-spine-band to \`style="display:none"\` so it does not render at the top. Do NOT render cos.ns_spine rows into the top band. (The CoS still computes ns_spine for internal state, and you may render it as a compact read-only summary INSIDE the collapsed <details class="everything-else"> section under an "🌟 North Star state" subhead — but it must NOT appear on the front page.)
+   - For #do-this-now-list, render EACH cos.do_this_now item as an INTERACTIVE LI (NOT a plain li). Read one existing dtn-item from current.html and pattern-match the rest. Structure: li.dtn-item with data-id/data-title/data-north-star, containing div.dtn-row with [div.dtn-tick.tick onclick=toggleDone + div.dtn-body containing div.dtn-title with span.effort + div.why-now + button.comment-toggle.dtn-comment-btn onclick=toggleComment] AND div.comment-box.dtn-comment-box containing textarea.comment-input oninput=saveComment. Order by rank. Show the effort_min as the span.effort (e.g. "45 min") and the why_now as div.why-now.
+     The tick + comment + saveComment handlers are in the frozen JS. Roger ticking these counts toward the Send-to-Claude payload.
+   - Add a one-line band header above the list showing the load: "N items · ~{committed_effort_min} min vs {remaining_work_min} min left today" so Roger can see the time-budget at a glance.
    - For #cos-question-band: if cos.cos_question exists, populate #cos-q-topic, #cos-q-situation, #cos-q-options (as <button class="q-option">{opt}</button>), set band display=block. If null, set display=none.
-   - DO NOT add the old inbox-strip or the old <details class="north-star"> back if they're missing — Roger explicitly removed them as non-functional. The compressed NS spine band at top REPLACES the old long NS section.
+   - DO NOT add the old inbox-strip or the old <details class="north-star"> back if they're missing — Roger removed them as non-functional.
    - DO NOT touch the existing details.everything-else wrap around the FP grid + day cards + all-actions — that structure works for Roger.
 
 7. ${tipRotated ? 'Rewrite the tip block using rotate-tip.py (pipe the tip JSON to its stdin).' : 'Skip tip block.'}
