@@ -665,22 +665,9 @@ Steps:
 
 6. **CoS output rendering — top section above the FP grid (v0.5, updated 5 Jun for interactive Do This Now):**
    - HTML scaffolding for #ns-spine-band, #do-this-now-band, #cos-question-band, .everything-else exists in current.html.
-   - For each cos.ns_spine[7], write to #ns-spine-rows: `<div class='ns-spine-row'><span class='ns-tag ns-{ns}'>{ns}</span> · <span class='ns-status status-{status}'>{status}</span> · {current_focus} → <em>{next_move}</em></div>` — HARD CAP 1 line per row.
-   - For #do-this-now-list, render EACH cos.do_this_now item as an INTERACTIVE LI matching this template (NOT a plain <li>):
-     ```
-     <li class="dtn-item" data-id="dtn-{rank}" data-title="{action}" data-north-star="{ns}">
-       <div class="dtn-row">
-         <div class="dtn-tick tick" onclick="toggleDone(this)"></div>
-         <div class="dtn-body">
-           <div class="dtn-title">{action} <span class="effort">[{effort_min} min · {ns}]</span></div>
-           <div class="why-now">{why_now}</div>
-         </div>
-         <button class="comment-toggle dtn-comment-btn" onclick="toggleComment(this)" title="Add note">+ note</button>
-       </div>
-       <div class="comment-box dtn-comment-box"><textarea class="comment-input" placeholder="Note for Claude…" oninput="saveComment(this)"></textarea></div>
-     </li>
-     ```
-     The tick + comment + saveComment handlers already exist in the dashboard's JS. Roger ticks → it counts toward Send-to-Claude payload like FP cards.
+   - For each cos.ns_spine[7], write to #ns-spine-rows ONE row HTML: a div.ns-spine-row containing span.ns-tag.ns-NS NS · span.ns-status.status-STATUS STATUS · CURRENT_FOCUS arrow em NEXT_MOVE. HARD CAP 1 line per row.
+   - For #do-this-now-list, render EACH cos.do_this_now item as an INTERACTIVE LI (NOT a plain li). The exact HTML pattern is in current.html as of v1.33 — read one existing dtn-item from the live file and pattern-match for the rest. Structure overview: li.dtn-item with data-id/data-title/data-north-star, containing div.dtn-row with [div.dtn-tick.tick onclick=toggleDone + div.dtn-body containing div.dtn-title with span.effort + div.why-now + button.comment-toggle.dtn-comment-btn onclick=toggleComment] AND div.comment-box.dtn-comment-box containing textarea.comment-input oninput=saveComment.
+     The tick + comment + saveComment handlers already exist in the dashboard JS. Roger ticking these counts toward Send-to-Claude payload like FP cards.
    - For #cos-question-band: if cos.cos_question exists, populate #cos-q-topic, #cos-q-situation, #cos-q-options (as <button class="q-option">{opt}</button>), set band display=block. If null, set display=none.
    - DO NOT add the old inbox-strip or the old <details class="north-star"> back if they're missing — Roger explicitly removed them as non-functional. The compressed NS spine band at top REPLACES the old long NS section.
    - DO NOT touch the existing details.everything-else wrap around the FP grid + day cards + all-actions — that structure works for Roger.
