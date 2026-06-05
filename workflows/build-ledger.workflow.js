@@ -160,10 +160,23 @@ ${CONTEXT}`,
   },
   {
     key: 'whatsapp-self-chat',
-    prompt: `NEW SOURCE — Roger's self-chat for voice/text notes. Roger's phone is 27663116507.
-Try chat_jid 27663116507@s.whatsapp.net first; if empty, search via mcp__whatsapp__search_contacts for "Roger" / "Notes" / "Self" patterns.
-For each note in window, extract substance: (a) action ("call X"), (b) observation ("noticed Y in M-Kopa numbers"), (c) thought to develop, (d) reminder, (e) other.
-Return verbatim text in the 'what' field with status reflecting follow-through implied.
+    prompt: `Roger's self-chat. Phone 27663116507. Try chat_jid 27663116507@s.whatsapp.net first.
+
+This source serves TWO purposes per fire — you MUST extract both:
+
+(1) VOICE / TEXT NOTES (existing) — extract substance per note: (a) action, (b) observation, (c) thought to develop, (d) reminder, (e) other. Return verbatim text in 'what' field with status reflecting follow-through implied.
+
+(2) ⚠ SEND-TO-CLAUDE PAYLOADS (NEW · standing instruction from Roger 5 Jun) — any message body whose FIRST line matches the regex \`^# Dashboard Updates · Stellenbosch Ledger\` is a payload Roger sent from the dashboard's "Send to Claude" button. These are NOT freeform notes — they are STRUCTURED commands the apply phase MUST process before publishing.
+
+For each such payload found:
+- Return ONE delta with status='action_owed', notable=true, who='Roger (Send to Claude payload)', what='PAYLOAD: <full markdown body verbatim>'
+- Set the 'when' field to the message timestamp
+- The synthesize + apply phases will parse the markdown sections (Items marked done / New tasks / Inbox handled / Tip feedback / etc.) and route them. Roger never needs to copy-paste the payload manually again.
+
+If MULTIPLE Send-to-Claude payloads have arrived since the prior edition (e.g. Roger sent two from different devices), return them all — the apply phase merges in order.
+
+If NO payload has arrived since the prior edition, that's fine — just return the regular notes deltas.
+
 ${CONTEXT}`,
   },
   {
@@ -314,7 +327,7 @@ Sweep digest (all 6 sources):
 ${JSON.stringify(sources, null, 2)}
 
 Optional "Send to Claude" payload from Roger (apply these as drops/updates):
-${args?.payload_done ? JSON.stringify(args.payload_done, null, 2) : '(none — leave done-state untouched)'}
+${args?.payload_done ? JSON.stringify(args.payload_done, null, 2) : '(args.payload_done not supplied — but ALSO check the whatsapp-self-chat sweep output: any delta whose what field begins with "PAYLOAD:" is an auto-detected Send-to-Claude submission from the dashboard. Parse the markdown body, extract Items marked done / New tasks added / Inbox marked handled / Tip feedback / North Star changes sections, apply each. Roger\'s standing instruction 5 Jun 2026: payloads in self-chat are AUTO-PROCESSED — no manual paste needed from him.)'}
 
 WhatsApp MCP health check:
 ${JSON.stringify(preflight, null, 2)}
