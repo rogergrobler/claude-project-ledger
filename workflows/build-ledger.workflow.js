@@ -47,6 +47,11 @@ phase('Sweep')
 
 const PROJECT_LEDGER_DIR = '~/Documents/Claude/Projects/Project Ledger/project_ledger'
 const PLUGIN_DIR = '~/code/claude-project-ledger'  // this plugin repo — holds the frozen JS template + build gate
+// Bash-safe, fully-quoted tokens for the node scripts: $HOME expands inside double
+// quotes AND the spaces in "Project Ledger" are protected. (Node does NOT expand ~,
+// so a quoted "~/..." path fails with ENOENT — use these instead.)
+const CURRENT_HTML_SH = '"$HOME/Documents/Claude/Projects/Project Ledger/project_ledger/current.html"'
+const PLUGIN_SCRIPTS_SH = '"$HOME/code/claude-project-ledger/scripts"'
 const SPOCK_SITE_BUILD_REPO = 'https://github.com/rogergrobler/spock-site-build.git'
 const LIVE_URL = 'https://rogergrobler.github.io/spock-site-build/ledger/'
 
@@ -685,8 +690,8 @@ ${JSON.stringify(tip, null, 2)}` : '(Tip rotation skipped — leave the existing
 
 Steps:
 
-0. **Restore the frozen JS FIRST (self-heal):** run
-   \`node ${PLUGIN_DIR}/scripts/inject-core.mjs "${PROJECT_LEDGER_DIR}/current.html"\`
+0. **Restore the frozen JS FIRST (self-heal):** run this EXACT command (the $HOME form matters — node does not expand ~):
+   \`node ${PLUGIN_SCRIPTS_SH}/inject-core.mjs ${CURRENT_HTML_SH}\`
    This overwrites all four inline <script> blocks with the canonical, gate-passing copy in templates/dashboard-core.json — so even if current.html inherited a corrupted block, the page starts from known-good JS. Do this before any other edit.
 
 1. Read current.html (now with healed JS).
@@ -746,9 +751,9 @@ await agent(applyPrompt, {
 phase('Verify')
 
 const verify = await agent(
-  `Run the Ledger build gate and report the result. Use the Bash tool:
+  `Run the Ledger build gate and report the result. Use the Bash tool with this EXACT command (the $HOME form matters — node does not expand ~):
 
-  node ${PLUGIN_DIR}/scripts/verify-build.mjs "${PROJECT_LEDGER_DIR}/current.html"
+  node ${PLUGIN_SCRIPTS_SH}/verify-build.mjs ${CURRENT_HTML_SH}
 
 Return {passed, output} where passed = (exit code 0) and output = the script's stdout+stderr verbatim. Do not fix anything; just run and report.`,
   {
@@ -778,7 +783,7 @@ phase('Publish')
 const publishPrompt = `Publish ${PROJECT_LEDGER_DIR}/current.html to ${SPOCK_SITE_BUILD_REPO}.
 
 Steps (use Bash):
-0. FINAL GATE (belt-and-suspenders): run \`node ${PLUGIN_DIR}/scripts/verify-build.mjs "${PROJECT_LEDGER_DIR}/current.html"\`. If it exits non-zero, STOP — do not clone, commit, or push. Print the gate output and return {aborted:true}. The live page must keep its last-good edition.
+0. FINAL GATE (belt-and-suspenders): run \`node ${PLUGIN_SCRIPTS_SH}/verify-build.mjs ${CURRENT_HTML_SH}\` (the $HOME form matters — node does not expand ~). If it exits non-zero, STOP — do not clone, commit, or push. Print the gate output and return {aborted:true}. The live page must keep its last-good edition.
 1. Re-query SAST: TZ='Africa/Johannesburg' date '+%Y-%m-%d %H:%M SAST'
 2. cp current.html to a dated snapshot in the same dir.
 3. Clone spock-site-build to /tmp; copy current.html to its ledger/index.html.
