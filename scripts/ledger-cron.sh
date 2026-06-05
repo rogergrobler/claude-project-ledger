@@ -118,6 +118,30 @@ else
   EXIT_CODE=$?
 fi
 
+# --- post-fire self-heal + gate ----------------------------------------------
+# The dashboard's JS is frozen (templates/dashboard-core.json). current.html is
+# carried forward fire-to-fire, so if any path left a corrupted <script> block
+# we re-inject the canonical JS NOW — that guarantees the NEXT fire starts from
+# known-good code and corruption can't compound across runs. Then we run the
+# build gate and log the verdict loudly.
+
+INJECT="$HOME/code/claude-project-ledger/scripts/inject-core.mjs"
+GATE="$HOME/code/claude-project-ledger/scripts/verify-build.mjs"
+CURRENT_HTML="$PROJDIR/current.html"
+
+if command -v node >/dev/null 2>&1 && [[ -f "$INJECT" && -f "$CURRENT_HTML" ]]; then
+  {
+    echo ""
+    echo "--- post-fire self-heal + build gate ---"
+    node "$INJECT" "$CURRENT_HTML"
+    if node "$GATE" "$CURRENT_HTML"; then
+      echo "POST-FIRE GATE: PASS"
+    else
+      echo "POST-FIRE GATE: FAIL — source still broken after heal; investigate templates/dashboard-core.json"
+    fi
+  } >> "$LOG" 2>&1
+fi
+
 {
   echo ""
   echo "--- exit code: ${EXIT_CODE} ---"

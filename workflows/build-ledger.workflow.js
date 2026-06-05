@@ -33,9 +33,10 @@ export const meta = {
   phases: [
     { title: 'Sweep',         detail: '6 parallel agents across WhatsApp (3 mandatory + self-chat) + Gmail + Calendar + Notion + Drive' },
     { title: 'Synthesize',    detail: 'merge deltas into structured patches for FP cards, NS cards, and the lede' },
-    { title: 'ChiefOfStaff',  detail: 'NS-spine state + top-N today + optional WhatsApp question; calibrated to 75% completion confidence' },
+    { title: 'ChiefOfStaff',  detail: 'NS-spine state + time-budgeted action list (no artificial cap, load_ratio ~1.15) + optional WhatsApp question' },
     { title: 'RotateTip',     detail: 'query Notion Tips Backlog for next unticked entry' },
-    { title: 'Apply',         detail: 'apply patches + bump all 9 timestamp anchors + write current.html' },
+    { title: 'Apply',         detail: 're-inject frozen JS (self-heal) + apply patches + bump timestamp anchors; never touch <script> blocks' },
+    { title: 'Verify',        detail: 'publish gate — JS parses + core handlers present; abort the run if not' },
     { title: 'Publish',       detail: 'snapshot + git clone spock-site-build + commit + push + poll for live' },
   ],
 }
@@ -45,6 +46,7 @@ export const meta = {
 phase('Sweep')
 
 const PROJECT_LEDGER_DIR = '~/Documents/Claude/Projects/Project Ledger/project_ledger'
+const PLUGIN_DIR = '~/code/claude-project-ledger'  // this plugin repo — holds the frozen JS template + build gate
 const SPOCK_SITE_BUILD_REPO = 'https://github.com/rogergrobler/spock-site-build.git'
 const LIVE_URL = 'https://rogergrobler.github.io/spock-site-build/ledger/'
 
@@ -444,28 +446,49 @@ const COS_SCHEMA = {
     },
     do_this_now: {
       type: 'array',
-      description: 'Top-N actions for today. Variable N (typically 3-7), calibrated to ~75% completion confidence given today\'s calendar density.',
+      description: 'The balanced action list for today. NO artificial item cap (Roger\'s explicit instruction 5 Jun 2026 — "limited to an artificial three or five items is not going to work"). Length is driven by the TIME BUDGET below: fill in priority order until committed effort lightly exceeds remaining work time (load_ratio ~1.1–1.25). A slightly-longer-than-completable list is desired; a count-capped list is not.',
       items: {
         type: 'object',
         properties: {
           rank: { type: 'number' },
           action: { type: 'string', description: 'one line, imperative voice — "Reply Willem Els on FinDev confirm"' },
           ns: { type: 'string', enum: ['family', 'matterhorn', 'chronos', 'spock', 'portfolio', 'inner-life', 'flywheel'] },
-          effort_min: { type: 'number', description: 'estimated minutes' },
-          why_now: { type: 'string', description: 'one line — why this specific item makes the top-N today' },
+          effort_min: { type: 'number', description: 'estimated minutes of focused work (small ≤15, medium ≤45, large ≥60)' },
+          importance: { type: 'number', description: '1–3, from the People-Importance layer / project priority / consequence-if-skipped. 3 = highest.' },
+          deadline_today: { type: 'boolean', description: 'true if this item has a hard same-day deadline or blocks something time-critical today' },
+          why_now: { type: 'string', description: 'one line — why this specific item earns a slot today given the time budget' },
           rule_applied: { type: 'string', description: 'rule_id if a generalised rule fired, else null' },
         },
-        required: ['rank', 'action', 'ns', 'effort_min', 'why_now'],
+        required: ['rank', 'action', 'ns', 'effort_min', 'importance', 'deadline_today', 'why_now'],
       },
+    },
+    time_budget: {
+      type: 'object',
+      description: 'The day-shape calculation that SIZES the list. Compute it explicitly — do not eyeball a number.',
+      properties: {
+        now_sast: { type: 'string', description: 'current time HH:MM SAST at fire (query TZ=Africa/Johannesburg)' },
+        productive_end_sast: { type: 'string', description: 'when Roger\'s focused work day realistically winds down (default ~18:00 SAST; later only if calendar/evening items justify it)' },
+        remaining_meetings_min: { type: 'number', description: 'sum of minutes of meetings/commitments still AHEAD of now_sast today' },
+        remaining_work_min: { type: 'number', description: '(productive_end − now) − remaining_meetings_min. The focused minutes Roger actually has left today. Can be small on a heavy afternoon.' },
+      },
+      required: ['now_sast', 'productive_end_sast', 'remaining_meetings_min', 'remaining_work_min'],
+    },
+    committed_effort_min: {
+      type: 'number',
+      description: 'Sum of effort_min across do_this_now. Should land at ~1.1–1.25× remaining_work_min — a touch over capacity, never a hard count.',
+    },
+    load_ratio: {
+      type: 'number',
+      description: 'committed_effort_min / remaining_work_min. Target 1.1–1.25. If <1.0 the list is too thin; if >1.4 it is overwhelming — re-balance.',
     },
     target_n: {
       type: 'number',
-      description: 'The N you chose. Should match do_this_now.length.',
+      description: 'do_this_now.length — a REPORTED OUTCOME of the time-budget fill, not a target you choose up front.',
     },
     calendar_density: {
       type: 'string',
       enum: ['light', 'medium', 'heavy'],
-      description: 'How packed today is. Heavy days → smaller N.',
+      description: 'How packed the REMAINDER of today is. Informs remaining_work_min; does not cap the list directly.',
     },
     cos_question: {
       type: 'object',
@@ -502,7 +525,7 @@ const COS_SCHEMA = {
       description: 'rule_ids of generalised rules that fired this run. Used to populate the apply phase\'s "rule trace" so Roger can audit.',
     },
   },
-  required: ['ns_spine', 'do_this_now', 'target_n', 'calendar_density', 'demotions', 'rules_applied_this_fire'],
+  required: ['ns_spine', 'do_this_now', 'time_budget', 'committed_effort_min', 'load_ratio', 'target_n', 'calendar_density', 'demotions', 'rules_applied_this_fire'],
 }
 
 const cosPrompt = `You are Roger's Chief of Staff. The dashboard has become a laundry list — your job is to fix that by deciding what actually surfaces at the top.
@@ -524,15 +547,22 @@ You produce:
 ## NS spine
 7 entries, one per North Star. HARD CAP: status + 1-line current focus + 1-line next move. Total 3 lines per star. No essay bodies.
 
-## do_this_now (top-N)
-Pick N (variable) such that P(Roger completes all N today) ≈ 75%. To estimate:
-- Pull today's calendar for "deep work budget" (hours minus meetings)
-- Estimate effort per candidate (small ≤15min, medium ≤45min, large ≥60min)
-- Look at yesterday's completion rate as a baseline
+## do_this_now (TIME-BUDGETED, not count-capped)
+Roger's explicit instruction (5 Jun 2026): "Look at what today looks like, how much time I've got, what the time is now, how much work time I've got left in today, what the workload is of every one of those tasks, how important they are, and then create a balanced list. I am happy the list is a little bit longer than is realistically possible to get through, but limiting to an artificial three or five items is not going to work."
 
-REVEALED-PREFERENCE RULE: if a card has been in top-N for ≥3 consecutive fires without being marked done, demote it (add to demotions array) unless the situation has fundamentally changed (sweep evidence). Don't surface stale items — that's the laundry-list trap.
+So DO NOT pick a number. Build the list from the day's shape, in four steps:
 
-Use the importance layer + the active projects + the buckets to ground priority. People with Importance 3 trump everyone else. Items in active projects beat orphan items. Bucket items where consequences cascade (multiple people blocked) beat solo items.
+1. **Size the day (time_budget).** Query now in SAST (TZ=Africa/Johannesburg). Set productive_end ≈ 18:00 SAST (later only if calendar/evening commitments clearly justify it). Sum the minutes of meetings/commitments still AHEAD of now. remaining_work_min = (productive_end − now) − remaining_meetings_min. On a heavy late afternoon this may be 60–90 min; on a clear morning it may be 5+ hours. This number sizes the list — not a fixed N.
+
+2. **Score every candidate** on importance (1–3 from the People-Importance layer / active-project priority / cascade-consequence) and urgency (deadline_today, blocks-others, decaying-warmth). Estimate effort_min per candidate (small ≤15 / medium ≤45 / large ≥60).
+
+3. **Fill in priority order** (importance × urgency, deadline_today first) accumulating effort_min until committed_effort_min reaches ~1.1–1.25× remaining_work_min — i.e. a list that is intentionally a touch longer than Roger can realistically finish, so he always has the next-best thing teed up, but never an overwhelming wall. Compute load_ratio and sanity-check it sits in 1.1–1.25 (re-balance if <1.0 or >1.4).
+
+4. **Always-include overrides** (these bypass the budget): same-day family items (Importance-3 family per rule-importance-3-family-same-day), money decisions that need Roger, and signatures with a deadline TODAY (rule-signatures-deadline-driven). Matterhorn training items appear ONLY on scheduled training days (rule-matterhorn-scheduled-days-only).
+
+REVEALED-PREFERENCE RULE: if a card has been surfaced ≥3 consecutive fires without being marked done, DON'T silently drop it — add it to demotions with fires_ignored, and (per rule-revealed-preference-3-strike-ask) raise a cos_question proposing the demotion before it disappears. Don't surface stale items unchanged — that's the laundry-list trap Roger is reacting to.
+
+Use the importance layer + active projects + buckets to ground priority. People with Importance 3 trump everyone else. Items in active projects beat orphan items. Bucket items where consequences cascade (multiple people blocked) beat solo items.
 
 ## cos_question (at most one)
 A 2×2:
@@ -559,7 +589,7 @@ ${JSON.stringify(sources, null, 2).slice(0, 4000)}...
 Synthesize patch:
 ${JSON.stringify(patch, null, 2).slice(0, 4000)}...
 
-Return the structured output. Stay disciplined: NS spine 3 lines per star, top-N calibrated to 75%, at most one question, demote stale items aggressively.
+Return the structured output. Stay disciplined: NS spine 3 lines per star, do_this_now sized by the TIME BUDGET (load_ratio 1.1–1.25, NO artificial item cap), at most one question, demote stale items via the ask-first rule.
 
 ${CONTEXT}`
 
@@ -569,7 +599,7 @@ const cos = await agent(cosPrompt, {
   schema: COS_SCHEMA,
 })
 
-log(`CoS produced: target_n=${cos.target_n}, calendar_density=${cos.calendar_density}, question=${cos.cos_question ? cos.cos_question.q_id : 'none'}, demotions=${cos.demotions?.length || 0}, rules_applied=${cos.rules_applied_this_fire?.length || 0}`)
+log(`CoS produced: ${cos.do_this_now?.length || 0} actions · ${cos.committed_effort_min}min committed / ${cos.time_budget?.remaining_work_min}min available (load ${cos.load_ratio}) · density=${cos.calendar_density} · question=${cos.cos_question ? cos.cos_question.q_id : 'none'} · demotions=${cos.demotions?.length || 0} · rules=${cos.rules_applied_this_fire?.length || 0}`)
 
 // ── Phase 3: Rotate the Claude Tip of the Day ─────────────────────────────
 
@@ -651,9 +681,15 @@ ${JSON.stringify(cos, null, 2)}
 ${tipRotated ? `New tip block to insert (rewrite the existing <details class="tip-block">):
 ${JSON.stringify(tip, null, 2)}` : '(Tip rotation skipped — leave the existing tip block alone.)'}
 
+⚠️ HARD RULE — THE JAVASCRIPT IS FROZEN. You must NEVER hand-edit anything between a \`<script>\` and \`</script>\` tag. All dashboard interactivity (toggleDone, toggleComment, saveComment, sendToClaude, the NS spine, drag/drop, the payload modal) lives there and is identical every fire. A single stray character there silently kills every button (this is the v1.34 regression that broke the dashboard for 24h). You only ever edit HTML content and CSS.
+
 Steps:
 
-1. Read current.html.
+0. **Restore the frozen JS FIRST (self-heal):** run
+   \`node ${PLUGIN_DIR}/scripts/inject-core.mjs "${PROJECT_LEDGER_DIR}/current.html"\`
+   This overwrites all four inline <script> blocks with the canonical, gate-passing copy in templates/dashboard-core.json — so even if current.html inherited a corrupted block, the page starts from known-good JS. Do this before any other edit.
+
+1. Read current.html (now with healed JS).
 
 2. Apply fp_cards_drop (from patch) + cos.demotions: remove each card by data-id.
 
@@ -699,6 +735,41 @@ await agent(applyPrompt, {
   phase: 'Apply',
 })
 
+// ── Phase 4b: Verify (publish gate) ───────────────────────────────────────
+// Hard gate: the JS must parse and the core handlers must exist BEFORE we touch
+// the live repo. If this fails we abort the whole run — the live page keeps its
+// last-good edition rather than being overwritten with a dead one. This is the
+// backstop for the v1.34-class regression (a broken <script> block silently
+// killing every button).
+
+phase('Verify')
+
+const verify = await agent(
+  `Run the Ledger build gate and report the result. Use the Bash tool:
+
+  node ${PLUGIN_DIR}/scripts/verify-build.mjs "${PROJECT_LEDGER_DIR}/current.html"
+
+Return {passed, output} where passed = (exit code 0) and output = the script's stdout+stderr verbatim. Do not fix anything; just run and report.`,
+  {
+    label: 'build-gate',
+    phase: 'Verify',
+    schema: {
+      type: 'object',
+      properties: {
+        passed: { type: 'boolean', description: 'true iff verify-build.mjs exited 0' },
+        output: { type: 'string', description: 'verbatim stdout+stderr from the gate' },
+      },
+      required: ['passed', 'output'],
+    },
+  },
+)
+
+if (!verify.passed) {
+  log(`❌ BUILD GATE FAILED — aborting before publish. Live page keeps last-good edition.\n${verify.output}`)
+  throw new Error(`Ledger build gate failed; refusing to publish. Gate output:\n${verify.output}`)
+}
+log(`✅ Build gate passed — safe to publish. ${verify.output}`)
+
 // ── Phase 5: Publish ──────────────────────────────────────────────────────
 
 phase('Publish')
@@ -706,6 +777,7 @@ phase('Publish')
 const publishPrompt = `Publish ${PROJECT_LEDGER_DIR}/current.html to ${SPOCK_SITE_BUILD_REPO}.
 
 Steps (use Bash):
+0. FINAL GATE (belt-and-suspenders): run \`node ${PLUGIN_DIR}/scripts/verify-build.mjs "${PROJECT_LEDGER_DIR}/current.html"\`. If it exits non-zero, STOP — do not clone, commit, or push. Print the gate output and return {aborted:true}. The live page must keep its last-good edition.
 1. Re-query SAST: TZ='Africa/Johannesburg' date '+%Y-%m-%d %H:%M SAST'
 2. cp current.html to a dated snapshot in the same dir.
 3. Clone spock-site-build to /tmp; copy current.html to its ledger/index.html.
