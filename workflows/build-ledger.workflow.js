@@ -663,26 +663,38 @@ Steps:
 
 5. Apply ns_card_updates: rewrite each NS card's body + NBA. ⚠ ENFORCE THE 3-LINE LIMIT — if a body or NBA exceeds 3 lines, COMPRESS IT before writing. Roger's call: NS cards must be glanceable.
 
-6. **NEW v0.4 — render CoS output into the top section above the FP grid:**
-   - The HTML scaffolding for #ns-spine-band, #do-this-now-band, #cos-question-band, #everything-else-toggle exists in current.html (see commit c00e19e and follow-ups). If a band is missing, create it as a child of <div class="masthead-section"> or similar.
-   - For each of cos.ns_spine[7], write to #ns-spine-band: "<div class='ns-spine-row'><span class='ns-tag ns-{ns}'>{ns}</span> · <span class='ns-status status-{status}'>{status}</span> · {current_focus} → <em>{next_move}</em></div>"
-   - For #do-this-now-band, write the cos.do_this_now items as an ordered list, with effort_min + ns badges + why_now tooltip.
-   - For #cos-question-band: if cos.cos_question exists, render it with the options as buttons. If null, hide the band (display: none).
-   - For #everything-else-toggle: collapse the existing FP grid + inbox + all-actions under a <details> block.
+6. **CoS output rendering — top section above the FP grid (v0.5, updated 5 Jun for interactive Do This Now):**
+   - HTML scaffolding for #ns-spine-band, #do-this-now-band, #cos-question-band, .everything-else exists in current.html.
+   - For each cos.ns_spine[7], write to #ns-spine-rows: `<div class='ns-spine-row'><span class='ns-tag ns-{ns}'>{ns}</span> · <span class='ns-status status-{status}'>{status}</span> · {current_focus} → <em>{next_move}</em></div>` — HARD CAP 1 line per row.
+   - For #do-this-now-list, render EACH cos.do_this_now item as an INTERACTIVE LI matching this template (NOT a plain <li>):
+     ```
+     <li class="dtn-item" data-id="dtn-{rank}" data-title="{action}" data-north-star="{ns}">
+       <div class="dtn-row">
+         <div class="dtn-tick tick" onclick="toggleDone(this)"></div>
+         <div class="dtn-body">
+           <div class="dtn-title">{action} <span class="effort">[{effort_min} min · {ns}]</span></div>
+           <div class="why-now">{why_now}</div>
+         </div>
+         <button class="comment-toggle dtn-comment-btn" onclick="toggleComment(this)" title="Add note">+ note</button>
+       </div>
+       <div class="comment-box dtn-comment-box"><textarea class="comment-input" placeholder="Note for Claude…" oninput="saveComment(this)"></textarea></div>
+     </li>
+     ```
+     The tick + comment + saveComment handlers already exist in the dashboard's JS. Roger ticks → it counts toward Send-to-Claude payload like FP cards.
+   - For #cos-question-band: if cos.cos_question exists, populate #cos-q-topic, #cos-q-situation, #cos-q-options (as <button class="q-option">{opt}</button>), set band display=block. If null, set display=none.
+   - DO NOT add the old inbox-strip or the old <details class="north-star"> back if they're missing — Roger explicitly removed them as non-functional. The compressed NS spine band at top REPLACES the old long NS section.
+   - DO NOT touch the existing details.everything-else wrap around the FP grid + day cards + all-actions — that structure works for Roger.
 
 7. ${tipRotated ? 'Rewrite the tip block using rotate-tip.py (pipe the tip JSON to its stdin).' : 'Skip tip block.'}
 
-8. Bump ALL 9 timestamp anchors with TZ='Africa/Johannesburg' date queried NOW. The 9 anchors:
-   (1) kicker time-of-day (use patch.kicker, which already includes the slot)
-   (2) subtitle "Compiled HH:MM SAST..." (prepend the time to patch.subtitle)
+8. Bump ALL timestamp anchors with TZ='Africa/Johannesburg' date queried NOW (re-query IMMEDIATELY before the snapshot, not at agent-start). Anchors that still exist after the 5 Jun cleanup:
+   (1) kicker time-of-day phrase (use patch.kicker; includes slot label)
+   (2) subtitle "Compiled HH:MM SAST..." (prepend time to patch.subtitle)
    (3) dateline-edition slot
    (4) ns-last-calibrated
-   (5) inbox-strip-hed
-   (6) lede h2 opening clock
-   (7) day-card "Now · …" week-banner
-   (8) footer-text Compiled... line
-   (9) pullquote opening clock
-   Re-query SAST IMMEDIATELY before the snapshot (Phase 5).
+   (5) footer-text Compiled line
+   (6) pullquote opening clock
+   (Anchors REMOVED 5 Jun by Roger: inbox-strip-hed [section deleted], old lede h2 [section deleted], old day-card week-banner [in collapsed Everything Else but unused].)
 
 9. **WhatsApp Q&A loop — send the CoS question if any:**
    If cos.cos_question?.send_to_whatsapp is true, call mcp__whatsapp__send_message to ${NOTION_IDS.roger_self_chat} with this message body:
