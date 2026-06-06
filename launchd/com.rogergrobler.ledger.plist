@@ -12,10 +12,13 @@
   </array>
 
   <!--
-    Three fires per day in SAST (system tz is Africa/Johannesburg):
-      06:30 — morning briefing before the day starts
-      13:00 — post-lunch midday snapshot
-      21:00 — evening reset before bed
+    Three fires per day in SAST (system tz is Africa/Johannesburg).
+    Schedule updated 6 Jun 2026 per Roger: 21h00 fire was not useful
+    (too late to act on, day already done); shifted earlier and tighter
+    to give morning + midday + mid-afternoon coverage.
+      07:00 — morning briefing as the day starts
+      12:00 — midday checkpoint (pre-lunch)
+      15:00 — mid-afternoon refresh (still time to act before EOD)
 
     launchd uses the system time zone for StartCalendarInterval. If the
     machine ever moves out of Africa/Johannesburg, edit these hours or
@@ -24,15 +27,15 @@
   <key>StartCalendarInterval</key>
   <array>
     <dict>
-      <key>Hour</key><integer>6</integer>
-      <key>Minute</key><integer>30</integer>
-    </dict>
-    <dict>
-      <key>Hour</key><integer>13</integer>
+      <key>Hour</key><integer>7</integer>
       <key>Minute</key><integer>0</integer>
     </dict>
     <dict>
-      <key>Hour</key><integer>21</integer>
+      <key>Hour</key><integer>12</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key><integer>15</integer>
       <key>Minute</key><integer>0</integer>
     </dict>
   </array>
