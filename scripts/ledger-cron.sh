@@ -44,6 +44,47 @@ if [[ ! -d "$PROJDIR" ]]; then
   exit 1
 fi
 
+# --- pre-fire structural baseline ---------------------------------------------
+# The workflow's apply phase edits current.html in place. If current.html got
+# corrupted or carried a deprecated structure, the next fire would propagate
+# the bad shape (this is exactly what bit us 6 Jun: the 06:30 fire reverted
+# the tabbed layout back to the v1.40 NS-spine + Do-This-Now-band layout
+# because that's what current.html happened to hold). The cleanest guarantee
+# is to ALWAYS rebase current.html from the live published edition before
+# firing — that's the canonical "what Roger sees right now" state.
+
+LIVE_URL="https://rogergrobler.github.io/spock-site-build/ledger/"
+CURRENT_HTML="$PROJDIR/current.html"
+BASELINE_TMP="$PROJDIR/.baseline.tmp.html"
+
+{
+  echo ""
+  echo "--- pre-fire structural baseline ---"
+  echo "Pulling live edition from $LIVE_URL as the working baseline"
+} >> "$LOG"
+
+if curl -fsSL --max-time 20 -o "$BASELINE_TMP" "${LIVE_URL}?cb=$(date +%s)" 2>>"$LOG"; then
+  LIVE_SIZE=$(wc -c < "$BASELINE_TMP" | tr -d ' ')
+  if [[ "$LIVE_SIZE" -lt 50000 ]]; then
+    echo "  WARNING: live fetch only ${LIVE_SIZE} bytes — too small, keeping existing current.html" >> "$LOG"
+    rm -f "$BASELINE_TMP"
+  else
+    # Sanity-check the live HTML has the v1.46+ tab structure before overwriting.
+    if grep -q 'class="tab-btn"' "$BASELINE_TMP" && grep -q 'id="tab-bar"' "$BASELINE_TMP"; then
+      # Detect & log version
+      LIVE_VERSION=$(grep -oE 'v1\.[0-9]+(\.[0-9]+)?' "$BASELINE_TMP" | head -1)
+      mv "$BASELINE_TMP" "$CURRENT_HTML"
+      echo "  ✓ rebased current.html from live (${LIVE_VERSION:-unknown}, ${LIVE_SIZE} bytes — has tab-bar + tab-btn structure)" >> "$LOG"
+    else
+      echo "  WARNING: live edition is missing tab-bar / tab-btn — NOT rebasing. The previous fire may have published a regression. Keeping existing current.html." >> "$LOG"
+      rm -f "$BASELINE_TMP"
+    fi
+  fi
+else
+  echo "  WARNING: could not fetch live edition (curl failed) — keeping existing current.html" >> "$LOG"
+  rm -f "$BASELINE_TMP"
+fi
+
 # --- fire --------------------------------------------------------------------
 
 # Strategy: prefer the build-ledger Workflow (deterministic 5-phase pipeline),

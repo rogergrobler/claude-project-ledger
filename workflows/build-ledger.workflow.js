@@ -60,6 +60,50 @@ The Stellenbosch Ledger is his personal dashboard, published to ${LIVE_URL}.
 This workflow rebuilds it from scratch using fresh sweeps across his integrated
 data sources.`
 
+// ── FABRICATION BLOCKLIST (Roger's standing kill-list) ─────────────────────
+// Items the CoS / synthesize phases MUST NOT regenerate. Each entry was
+// flagged by Roger as a hallucination during a live fire. The apply phase
+// strips any matching item from cos.do_this_now and patch.fp_cards_add
+// before rendering, and writes a "blocklist hit" line to the footer audit.
+//
+// To add an entry: paste the action title (or substring), the data-id if
+// known, and a one-line reason with the date Roger called it out. Append-
+// only — never delete entries, otherwise the regression returns.
+const FABRICATION_BLOCKLIST = [
+  {
+    id: 'dtn-11',
+    title_substrings: ['Rich Shapiro', "Joshua's car", "Joshua's storage", 'car/storage handover', 'EY) on Joshua'],
+    reason: 'Fabricated CoS task. Roger killed it 2026-06-05 (v1.42) — "I have no idea what you\'re talking about" — and again 2026-06-06 (v1.46) — "This is a nonsense, fabricated action. Delete everywhere". Recurrence means the CoS is rebuilding it from a sweep echo; never regenerate.',
+    flagged: '2026-06-05',
+  },
+]
+
+// ── STRUCTURAL BASELINE (v1.46+ tabbed layout — FROZEN) ────────────────────
+// The dashboard structure as of v1.46 (6 Jun 2026). The apply phase MUST
+// preserve this structure. The 06:30 06-Jun fire reverted from the tabbed
+// layout back to the v1.40 NS-spine + Do-This-Now-band layout because the
+// apply prompt didn't know about the tab structure. This constant is now
+// the canonical reference.
+const STRUCTURAL_BASELINE = {
+  baseline_version: 'v1.46',
+  tab_bar_id: 'tab-bar',
+  tabs: [
+    { id: 'tab-do-this-now',    panel: 'panel-do-this-now',    label: '⚡ Do this now',          count_id: 'count-do-this-now',    counted: 'cos.do_this_now items' },
+    { id: 'tab-deep-work',      panel: 'panel-deep-work',      label: '🎯 Deep Work',            count_id: 'count-deep-work',      counted: 'manually-curated focus items (rarely changes)' },
+    { id: 'tab-front-page',     panel: 'panel-front-page',     label: '🔥 Front Page',           count_id: null,                   counted: 'no badge — see #priority-grid' },
+    { id: 'tab-isa',            panel: 'panel-isa',            label: '👤 Isa',                 count_id: 'count-isa',            counted: 'open Isa payment + action rows' },
+    { id: 'tab-people',         panel: 'panel-people',         label: '📨 People & Bottlenecks', count_id: 'count-people',         counted: 'open signal-item rows' },
+    { id: 'tab-north-stars',    panel: 'panel-north-stars',    label: '⭐ North Stars',           count_id: null,                   counted: '7 stars, fixed' },
+    { id: 'tab-everything-else',panel: 'panel-everything-else',label: '🗂 Everything else',       count_id: null,                   counted: 'backlog' },
+    { id: 'tab-done',           panel: 'panel-done',           label: '✅ Done',                 count_id: 'count-done',           counted: 'last 72h of completed items' },
+  ],
+  retired_legacy_ids: ['ns-spine-band', 'do-this-now-band'],
+  retired_reason: 'Roger 5–6 Jun: the front page = the tabs. The old top "bands" duplicated what Do This Now + Front Page + North Stars panels already do, and were retired in v1.45/v1.46. The apply phase must STRIP these elements if it finds them at the top of current.html and never regenerate them.',
+  fp_card_container: 'priority-grid',         // inside #panel-front-page
+  dtn_list_container: 'do-this-now-list',     // inside #panel-do-this-now
+  global_question_band: 'cos-question-band',  // ABOVE the tab-bar; not inside any tab-panel
+}
+
 // Notion infrastructure IDs (verified to exist on 2026-06-04).
 const NOTION_IDS = {
   bucket_signatures:    '33d493ab-3bff-81a1-aecb-c1b998a39e45',  // 📝 Signatures Pending
@@ -588,6 +632,13 @@ For each generalised rule (status="active") whose trigger_shape matches a candid
 ## demotions
 Per the revealed-preference rule above.
 
+## FABRICATION BLOCKLIST — DO NOT regenerate these items
+Roger's standing kill-list of items the CoS has fabricated in past fires. If your candidate list contains any item matching one of these blocklist entries by id OR by title-substring, OMIT it from do_this_now and OMIT it from any FP card proposal. The apply phase will also filter (defense in depth) but the right behaviour is to not generate them in the first place. Append-only registry:
+
+${FABRICATION_BLOCKLIST.map(b => '• id="' + b.id + '" · title substrings: ' + JSON.stringify(b.title_substrings) + '\n  reason: ' + b.reason).join('\n')}
+
+If you encounter input data (sweep deltas, decisions log entries, even prior current.html state) that mentions one of these items, treat it as STALE NOISE and do not propagate. The recurrence pattern is: a sweep echo re-introduces the item → CoS treats it as new → Roger has to delete it again. Break the loop here.
+
 Sweep digest:
 ${JSON.stringify(sources, null, 2).slice(0, 4000)}...
 
@@ -704,15 +755,65 @@ Steps:
 
 5. Apply ns_card_updates: rewrite each NS card's body + NBA. ⚠ ENFORCE THE 3-LINE LIMIT — if a body or NBA exceeds 3 lines, COMPRESS IT before writing. Roger's call: NS cards must be glanceable.
 
-6. **CoS output rendering — the front page IS the Do This Now band (v0.6, updated 5 Jun):**
-   - The front page Roger reads = masthead + lede + the **Do This Now band**. That is the entire surface above the fold. Nothing else competes with it.
-   - **REMOVE the North Star Spine from the front page** (Roger's explicit call 5 Jun — "the NS Spine is still there that we said we're going to remove"). Set #ns-spine-band to \`style="display:none"\` so it does not render at the top. Do NOT render cos.ns_spine rows into the top band. (The CoS still computes ns_spine for internal state, and you may render it as a compact read-only summary INSIDE the collapsed <details class="everything-else"> section under an "🌟 North Star state" subhead — but it must NOT appear on the front page.)
-   - For #do-this-now-list, render EACH cos.do_this_now item as an INTERACTIVE LI (NOT a plain li). Read one existing dtn-item from current.html and pattern-match the rest. Structure: li.dtn-item with data-id/data-title/data-north-star, containing div.dtn-row with [div.dtn-tick.tick onclick=toggleDone + div.dtn-body containing div.dtn-title with span.effort + div.why-now + button.comment-toggle.dtn-comment-btn onclick=toggleComment] AND div.comment-box.dtn-comment-box containing textarea.comment-input oninput=saveComment. Order by rank. Show the effort_min as the span.effort (e.g. "45 min") and the why_now as div.why-now.
-     The tick + comment + saveComment handlers are in the frozen JS. Roger ticking these counts toward the Send-to-Claude payload.
-   - Add a one-line band header above the list showing the load: "N items · ~{committed_effort_min} min vs {remaining_work_min} min left today" so Roger can see the time-budget at a glance.
-   - For #cos-question-band: if cos.cos_question exists, populate #cos-q-topic, #cos-q-situation, #cos-q-options (as <button class="q-option">{opt}</button>), set band display=block. If null, set display=none.
-   - DO NOT add the old inbox-strip or the old <details class="north-star"> back if they're missing — Roger removed them as non-functional.
-   - DO NOT touch the existing details.everything-else wrap around the FP grid + day cards + all-actions — that structure works for Roger.
+6. **CoS output rendering — v0.7, TAB-AWARE (Roger 6 Jun 2026 — v1.46 baseline):**
+
+   ⚠ STRUCTURAL FREEZE: as of v1.46 the dashboard uses an 8-tab layout. The tab-bar (#tab-bar) and the 8 tab-panels are PERMANENT and you must not add, remove, rename, or reorder them. The 8 tabs in fixed order:
+     ${STRUCTURAL_BASELINE.tabs.map(t => '• ' + t.label + ' → div#' + t.panel + (t.count_id ? ' (badge #' + t.count_id + ': ' + t.counted + ')' : ' (' + t.counted + ')')).join('\n     ')}
+
+   ⚠ RETIRED LEGACY ELEMENTS — if current.html still contains these at the TOP (outside any tab-panel), DELETE the entire <div class="cos-band"> block for each:
+     ${STRUCTURAL_BASELINE.retired_legacy_ids.map(id => '• div#' + id + ' — REMOVE if present').join('\n     ')}
+     Reason: ${STRUCTURAL_BASELINE.retired_reason}
+     The 06:30 06-Jun fire recreated #ns-spine-band and #do-this-now-band because the v0.6 apply prompt told it to. v0.7 retires both. If you find them at the top of current.html, strip them in a single regex pass before doing anything else, then continue with the tab-aware render below.
+
+   ⚠ FABRICATION BLOCKLIST — Roger's standing kill-list. Before rendering, FILTER both cos.do_this_now and patch.fp_cards_add through the blocklist below. Any item whose data-id OR action text matches a blocklist entry must be dropped, NOT rendered, NOT added — and you must append one line to the footer audit naming the blocked entry + the trigger ("blocklist hit: dtn-11 — Rich Shapiro/Joshua car-storage").
+     Blocklist (append-only):
+     ${FABRICATION_BLOCKLIST.map(b => '• id="' + b.id + '" · titles match any of: ' + JSON.stringify(b.title_substrings) + ' · reason: ' + b.reason).join('\n     ')}
+
+   --- TAB-BY-TAB RENDER ---
+
+   ⚡ Do This Now → ol#do-this-now-list inside div#panel-do-this-now:
+   - Render each cos.do_this_now item (AFTER blocklist filter) as an INTERACTIVE LI. Pattern: copy one existing li.dtn-item from current.html and adapt. Structure: li.dtn-item with data-id/data-title/data-north-star; div.dtn-row containing [div.dtn-tick.tick onclick=toggleDone + div.dtn-body containing div.dtn-title (with span.effort) + div.why-now + button.comment-toggle.dtn-comment-btn onclick=toggleComment]; div.comment-box.dtn-comment-box containing textarea.comment-input oninput=saveComment.
+   - Order by rank.
+   - Show effort_min as the span.effort (e.g. "· 45 min · chronos") and why_now as div.why-now.
+   - Update the panel header line ("⚡ Do this now <span class='cos-count'>...</span>") to read "N left · {top-3 titles, semicolon-separated} · {tail like 'X cleared in the last 72h ✓ → Done tab'}".
+   - Update the tab badge: <span class="tab-count" id="count-do-this-now">N</span> where N = the rendered count (post-blocklist).
+   - Carry-forward rule: items already in #do-this-now-list that are not in cos.do_this_now this fire AND not on patch.fp_cards_drop AND not on cos.demotions are CARRIED FORWARD with their existing data-first-seen (don't reset). Items on demotions are removed + logged to the footer.
+
+   🔥 Front Page → div#priority-grid inside div#panel-front-page:
+   - patch.fp_cards_add (AFTER blocklist filter): insert at the top of the grid as <div class="card fire" ...> blocks. Set data-first-seen to today's UTC date. If the card has a corresponding cos.do_this_now item, add "fire" to className so it visually escalates.
+   - patch.fp_cards_drop + cos.demotions: remove the matching <div class="card" data-id="..."> blocks from #priority-grid AND from #do-this-now-list (in case Roger ticked them).
+   - patch.fp_cards_update_meta: replace .card-meta line for each id.
+   - DO NOT collapse #priority-grid behind <details class="everything-else">. The FP grid is the primary workspace.
+
+   ⭐ North Stars → div#panel-north-stars only:
+   - Render cos.ns_spine into the spine-rows container INSIDE #panel-north-stars (look for div#ns-spine-rows or equivalent; if missing, create one inside #panel-north-stars). Hard cap 3 lines per star.
+   - Apply patch.ns_card_updates to the per-NS card bodies inside #panel-north-stars (each NS card has its own data-ns="family" / "chronos" / etc.).
+   - DO NOT render cos.ns_spine at the top of the dashboard. If you find any <div class="cos-band" id="ns-spine-band"> at the top, DELETE it (see retired-legacy rule above).
+
+   👤 Isa / 📨 People & Bottlenecks / 🗂 Everything else / ✅ Done:
+   - You do not regenerate these tabs from the patch. They are carried forward fire-to-fire and only mutate via Send-to-Claude payloads. Touch them ONLY to update the tab badge counts:
+     • count-isa = number of open .row inside #panel-isa that are not class="done"
+     • count-people = number of .signal-item inside #panel-people
+     • count-done = number of .row inside #panel-done
+
+   🎯 Deep Work → div#panel-deep-work:
+   - Static list curated by Roger. Do not modify unless the patch explicitly contains a deep_work_change. Just count and badge.
+
+   --- ABOVE-THE-TABS (GLOBAL) ---
+
+   ❓ Question band → div#cos-question-band (this sits ABOVE the tab-bar; it is NOT in any tab-panel):
+   - If cos.cos_question exists: populate #cos-q-topic, #cos-q-situation, #cos-q-options (as <button class="q-option">{opt}</button>); set the band style="display:block".
+   - If cos.cos_question is null: set style="display:none".
+
+   📡 Signal band → div#signal-band (also above the tab-bar; kept per Roger 5 Jun — important people + bottlenecks). Update the inner lists from this fire's deltas; do not duplicate into the People tab.
+
+   --- WHAT YOU MUST NOT DO ---
+   - DO NOT create div#ns-spine-band anywhere — retired.
+   - DO NOT create div#do-this-now-band anywhere — retired.
+   - DO NOT add/remove/reorder tabs in #tab-bar.
+   - DO NOT wrap #priority-grid in <details class="everything-else">.
+   - DO NOT touch any <script> blocks (frozen — handled by Step 0's inject-core.mjs).
+   - DO NOT rebuild the document from scratch. Always edit in place against the existing v1.46+ structure.
 
 7. ${tipRotated ? 'Rewrite the tip block using rotate-tip.py (pipe the tip JSON to its stdin).' : 'Skip tip block.'}
 
