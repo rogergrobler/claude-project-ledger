@@ -60,6 +60,33 @@ The Stellenbosch Ledger is his personal dashboard, published to ${LIVE_URL}.
 This workflow rebuilds it from scratch using fresh sweeps across his integrated
 data sources.`
 
+// ── ALABAMA SUPREME PRIORITY (Roger's wife Elca — overrides every other rule) ─
+// Origin 2026-06-06: Roger missed an explicit "action. Phone Louisa please"
+// message from Elca during the week of 1 Jun, got "in trouble" for it. This
+// rule encodes that the pattern cannot recur. Any inbound from Elca that
+// matches action-shape triggers THREE simultaneous surfaces:
+//   1. The permanent #alabama-band at the top of the dashboard (above tab-bar)
+//      shows it as a fire-styled action chip with the WhatsApp deeplink.
+//   2. Top of cos.do_this_now with rank=0, importance=3, deadline_today=true,
+//      and immune to revealed-preference demotion.
+//   3. Front Page gets a `.card.fire` with Family NS tag.
+// The sweep agent MUST run an Alabama-first WhatsApp query before any other
+// source. If Alabama has nothing new, log that explicitly so Roger can see
+// the surface was checked.
+const ALABAMA = {
+  person: 'Elca Grobler',
+  whatsapp_alias: 'Alabama',
+  whatsapp_number: '27721818934',
+  whatsapp_deeplink: 'https://wa.me/27721818934',
+  importance_rating: '3 · Always promote',
+  ns: 'family',
+  action_keywords: ['action','please','call','phone','fetch','pick up','remember','tell','buy','book','sign','reply','send','drop off','collect','order','organise','organize','sort','fix','arrange'],
+  imperative_verbs_sentence_start: ['phone','call','fetch','buy','tell','ask','remember','book','sign','reply','send','order','pick','drop','collect','arrange','organise','organize','sort','fix','check','confirm','do','get','make','take','bring','find','help','please'],
+  rule_id: 'rule-alabama-supreme-priority',
+  overrides: ['rule-revealed-preference-3-strike-ask', 'rule-irreversible-ask', 'time_budget cap', 'load_ratio cap'],
+  sentinel_band_id: 'alabama-band',
+}
+
 // ── FABRICATION BLOCKLIST (Roger's standing kill-list) ─────────────────────
 // Items the CoS / synthesize phases MUST NOT regenerate. Each entry was
 // flagged by Roger as a hallucination during a live fire. The apply phase
@@ -573,6 +600,21 @@ const COS_SCHEMA = {
       items: { type: 'string' },
       description: 'rule_ids of generalised rules that fired this run. Used to populate the apply phase\'s "rule trace" so Roger can audit.',
     },
+    alabama_actions: {
+      type: 'array',
+      description: 'Alabama-first sweep output. ONE entry per actionable WhatsApp message from Elca (alias Alabama, number 27721818934) since the previous fire. Emit even if empty (i.e. []). Every entry here also appears in do_this_now at rank 0 and in patch.fp_cards_add as a .card.fire — this array is the SOURCE OF TRUTH for the #alabama-band render in the apply phase.',
+      items: {
+        type: 'object',
+        properties: {
+          message_id: { type: 'string', description: 'WhatsApp message id for traceability' },
+          message_text: { type: 'string', description: 'Verbatim message text from Elca — render as she wrote it' },
+          received_at_sast: { type: 'string', description: 'HH:MM SAST when she sent it' },
+          detected_action: { type: 'string', description: 'one line — the action distilled, e.g. "Phone Louisa"' },
+          trigger_keywords: { type: 'array', items: { type: 'string' }, description: 'which detection rule(s) matched (keyword names or "imperative-verb-start")' },
+        },
+        required: ['message_text', 'received_at_sast', 'detected_action'],
+      },
+    },
   },
   required: ['ns_spine', 'do_this_now', 'time_budget', 'committed_effort_min', 'load_ratio', 'target_n', 'calendar_density', 'demotions', 'rules_applied_this_fire'],
 }
@@ -592,6 +634,35 @@ You read the following inputs:
 10. Yesterday's dashboard state (what was in top-N, what got done vs ignored)
 
 You produce:
+
+## ⚠ ALABAMA-FIRST PASS (must run BEFORE NS spine / do_this_now construction)
+${ALABAMA.person} (alias "${ALABAMA.whatsapp_alias}" on WhatsApp, number ${ALABAMA.whatsapp_number}) is Roger's wife. The rule **${ALABAMA.rule_id}** (status=active, supreme) overrides every other rule including: ${ALABAMA.overrides.join(', ')}.
+
+Before constructing ns_spine and do_this_now, do this:
+
+1. Query mcp__whatsapp__list_messages with sender = ${ALABAMA.whatsapp_number} OR the direct-chat-by-contact for that number, since the previous fire's timestamp. Get every message Roger has not yet ticked done.
+
+2. For each message, run action-shape detection:
+   • Contains any of these keywords (case-insensitive): ${ALABAMA.action_keywords.join(', ')}
+   • Starts with an imperative verb (sentence-initial, case-insensitive): ${ALABAMA.imperative_verbs_sentence_start.join(', ')}
+   • Mentions a name + a verb (e.g. "Phone Louisa", "tell Markus") even without an action keyword
+   If ANY of these match, treat as an Alabama action.
+
+3. For each Alabama action message:
+   • Inject into cos.do_this_now at rank=0, importance=3, deadline_today=true, ns="family", rule_applied="${ALABAMA.rule_id}".
+   • Add a parallel item to patch.fp_cards_add as a .card.fire with data-north-star="family" and data-action-url="${ALABAMA.whatsapp_deeplink}".
+   • Carry the original WhatsApp message text verbatim so Roger sees her exact words.
+   • Add to cos.alabama_actions array (new field — emit even if empty).
+
+4. If Alabama sent NO new actionable messages this fire:
+   • cos.alabama_actions = []
+   • The apply phase will render "No new action messages from Alabama since last fire" in the band.
+
+5. Alabama action items are IMMUNE to:
+   • revealed-preference 3-strike-ask (they don't accrue ignore-strikes)
+   • time_budget cap (they're always-include overrides)
+   • load_ratio cap (committed_effort_min sum can exceed 1.25× for Alabama items)
+   • demotions (never demote an Alabama action; if Roger ignores, raise a cos_question explicitly asking but never auto-demote)
 
 ## NS spine
 7 entries, one per North Star. HARD CAP: status + 1-line current focus + 1-line next move. Total 3 lines per star. No essay bodies.
@@ -768,6 +839,30 @@ Steps:
    ⚠ FABRICATION BLOCKLIST — Roger's standing kill-list. Before rendering, FILTER both cos.do_this_now and patch.fp_cards_add through the blocklist below. Any item whose data-id OR action text matches a blocklist entry must be dropped, NOT rendered, NOT added — and you must append one line to the footer audit naming the blocked entry + the trigger ("blocklist hit: dtn-11 — Rich Shapiro/Joshua car-storage").
      Blocklist (append-only):
      ${FABRICATION_BLOCKLIST.map(b => '• id="' + b.id + '" · titles match any of: ' + JSON.stringify(b.title_substrings) + ' · reason: ' + b.reason).join('\n     ')}
+
+   --- ⚠ ALABAMA BAND (renders ABOVE the tab-bar, before anything else) ---
+   #alabama-band is the permanent supreme-priority surface for Elca's WhatsApp actions. It lives just above #tab-bar and renders on EVERY fire.
+
+   Find <div class="alabama-band" id="alabama-band"> in current.html. Replace ONLY the inner <div class="alabama-state" id="alabama-state"> contents (NOT the head, NOT the promise dotted-rule explainer at the bottom — those are fixed).
+
+   If cos.alabama_actions.length > 0:
+     For EACH action, render an action chip inside #alabama-state:
+       <div class="alabama-action">
+         <span>🔴 {action.detected_action}</span>
+         <span class="alabama-action-time">{action.received_at_sast} SAST</span>
+       </div>
+     Below the chips, render a single .alabama-status line:
+       "{N} new action message{s} from Alabama — surfaced at top of Do this now + as Front Page fire card. Tap WhatsApp to reply."
+     Below that, render the verbatim message text as .alabama-last with quotes:
+       "Latest: '{first action.message_text}'"
+
+   If cos.alabama_actions.length === 0:
+     Render a single .alabama-status:
+       "No new action messages from Alabama since last fire."
+     Then a .alabama-last with the most recent non-action touch from her (if known):
+       "Last touch: {time} '{first ~80 chars of message}'"
+
+   DO NOT remove the .alabama-promise paragraph at the bottom of the band — it documents the system for Roger. DO NOT change the head row (👩‍❤️‍👨 / Alabama / meta line / WhatsApp button).
 
    --- TAB-BY-TAB RENDER ---
 
