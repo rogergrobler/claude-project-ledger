@@ -840,29 +840,59 @@ Steps:
      Blocklist (append-only):
      ${FABRICATION_BLOCKLIST.map(b => '• id="' + b.id + '" · titles match any of: ' + JSON.stringify(b.title_substrings) + ' · reason: ' + b.reason).join('\n     ')}
 
-   --- ⚠ ALABAMA BAND (renders ABOVE the tab-bar, before anything else) ---
-   #alabama-band is the permanent supreme-priority surface for Elca's WhatsApp actions. It lives just above #tab-bar and renders on EVERY fire.
+   --- ⚠ ALABAMA RENDERING — FOLDED INTO EXISTING COMPONENTS (Roger 7 Jun) ---
+   The dedicated #alabama-band has been RETIRED (v1.53). Roger's call: "perform the Alabama priorities within the other infrastructure we built. Not as its own block." The supreme-priority enforcement is unchanged at the logic layer — only the visual changes.
 
-   Find <div class="alabama-band" id="alabama-band"> in current.html. Replace ONLY the inner <div class="alabama-state" id="alabama-state"> contents (NOT the head, NOT the promise dotted-rule explainer at the bottom — those are fixed).
+   ⚠ DELETE-IF-PRESENT: if current.html contains <div class="alabama-band" id="alabama-band">, REMOVE the entire div block. Do not regenerate it under any circumstances. Same for the .alabama-band / .alabama-head / .alabama-action / .alabama-promise CSS rules.
 
-   If cos.alabama_actions.length > 0:
-     For EACH action, render an action chip inside #alabama-state:
-       <div class="alabama-action">
-         <span>🔴 {action.detected_action}</span>
-         <span class="alabama-action-time">{action.received_at_sast} SAST</span>
-       </div>
-     Below the chips, render a single .alabama-status line:
-       "{N} new action message{s} from Alabama — surfaced at top of Do this now + as Front Page fire card. Tap WhatsApp to reply."
-     Below that, render the verbatim message text as .alabama-last with quotes:
-       "Latest: '{first action.message_text}'"
+   For EACH item in cos.alabama_actions, render it on the existing components with a SUBTLE marker:
 
-   If cos.alabama_actions.length === 0:
-     Render a single .alabama-status:
-       "No new action messages from Alabama since last fire."
-     Then a .alabama-last with the most recent non-action touch from her (if known):
-       "Last touch: {time} '{first ~80 chars of message}'"
+   1. ⚡ Do This Now (existing #do-this-now-list):
+      Insert at the TOP of the list as a normal li.dtn-item with TWO additions:
+      • Add class "from-alabama" to the li
+      • Prepend a heart marker INSIDE the .dtn-title: <span class="alabama-mark">♥</span>
+      Resulting structure:
+        <li class="dtn-item from-alabama" data-id="dtn-alabama-{shortid}" data-title="{detected_action}" data-north-star="family">
+          <div class="dtn-row">
+            <div class="dtn-tick tick" onclick="toggleDone(this)"></div>
+            <div class="dtn-body">
+              <div class="dtn-title"><span class="alabama-mark">♥</span>{detected_action} <span class="effort">· 5 min · family</span></div>
+              <div class="why-now">from Alabama · {received_at_sast} SAST — "{first 70 chars of message_text}"</div>
+            </div>
+            <button class="comment-toggle dtn-comment-btn" onclick="toggleComment(this)">Add note</button>
+          </div>
+          <div class="comment-box dtn-comment-box"><textarea class="comment-input" placeholder="Note for Claude…" oninput="saveComment(this)"></textarea></div>
+        </li>
 
-   DO NOT remove the .alabama-promise paragraph at the bottom of the band — it documents the system for Roger. DO NOT change the head row (👩‍❤️‍👨 / Alabama / meta line / WhatsApp button).
+   2. 🔥 Front Page (existing #priority-grid):
+      Insert at the TOP of the grid as a normal div.card.fire WITH two additions:
+      • Add class "from-alabama" to the card (gives accent left edge via CSS)
+      • Prepend ♥ marker INSIDE .card-title
+      Resulting structure:
+        <div class="card fire from-alabama" data-id="fp-alabama-{shortid}" data-title="{detected_action}" data-action-url="${ALABAMA.whatsapp_deeplink}" data-north-star="family" data-first-seen="{today UTC date}">
+          <div class="card-head"><div class="card-title"><span class="alabama-mark">♥</span>{detected_action}</div><span class="ns-tag" title="Serves: Family">Family</span></div>
+          <div class="card-meta">from Alabama · {received_at_sast} SAST</div>
+          <div class="card-body">"{message_text verbatim}"</div>
+          <div class="card-controls"><div class="tick" onclick="toggleDone(this)"></div><span class="control-label">Mark done</span><a class="work-btn" href="${ALABAMA.whatsapp_deeplink}" target="_blank" onclick="workOnThis(event, this)">→ WhatsApp Alabama</a><button class="comment-toggle" onclick="toggleComment(this)">Add note</button></div>
+          <div class="comment-box"><textarea class="comment-input" placeholder="Note for Claude…" oninput="saveComment(this)"></textarea></div>
+        </div>
+
+   3. 📨 People & Bottlenecks signal-band (#signal-people-list, inside the people tab):
+      Insert at the TOP of the signal-people-list as a normal li.signal-item WITH:
+      • class "from-alabama" added
+      • ♥ prepended to the body line
+      Resulting structure:
+        <li class="signal-item from-alabama" data-id="ppl-alabama-{shortid}" data-title="{detected_action}" data-north-star="family">
+          <div class="si-body"><span class="alabama-mark">♥</span>Alabama · 0d · {detected_action}</div>
+        </li>
+
+   IF cos.alabama_actions IS EMPTY:
+     Do nothing. Render nothing. Silent = absent — no "no actions from Alabama" reminder noise on the dashboard. The sweep still ran and the rule still fired; it just had no actions to surface this fire.
+
+   IF EXISTING ALABAMA ITEMS FROM PREVIOUS FIRE ARE NOT TICKED:
+     Carry them forward unchanged (do NOT auto-demote — rule-alabama-supreme-priority makes them immune). They keep the from-alabama class and ♥ marker.
+
+   COUNT IMPLICATIONS: the tab badges (count-do-this-now, count-people) should include Alabama items in their counts — they're regular dtn-items / signal-items, just with one extra class and one extra span.
 
    --- TAB-BY-TAB RENDER ---
 
