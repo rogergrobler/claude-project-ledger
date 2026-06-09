@@ -15,7 +15,21 @@ set -uo pipefail
 
 # --- paths -------------------------------------------------------------------
 
-CLAUDE_BIN="$HOME/.local/bin/claude"
+# Resolve the claude binary robustly. The install location has moved before
+# (was ~/.local/bin/claude; the npm/homebrew global puts it at
+# /opt/homebrew/bin/claude). Hardcoding one path means a future relocation
+# silently kills every fire. Prefer PATH lookup, then fall back to known
+# install locations, so the job survives the CLI moving.
+CLAUDE_BIN="$(command -v claude 2>/dev/null || true)"
+if [[ -z "$CLAUDE_BIN" ]]; then
+  for cand in \
+    "/opt/homebrew/bin/claude" \
+    "$HOME/.local/bin/claude" \
+    "$HOME/.claude/local/claude" \
+    "/usr/local/bin/claude"; do
+    if [[ -x "$cand" ]]; then CLAUDE_BIN="$cand"; break; fi
+  done
+fi
 PROJDIR="$HOME/Documents/Claude/Projects/Project Ledger/project_ledger"
 LOG_DIR="$PROJDIR/cron-logs"
 
