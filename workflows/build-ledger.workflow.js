@@ -112,23 +112,31 @@ const FABRICATION_BLOCKLIST = [
 // apply prompt didn't know about the tab structure. This constant is now
 // the canonical reference.
 const STRUCTURAL_BASELINE = {
-  baseline_version: 'v1.46',
+  baseline_version: 'v1.69',
   tab_bar_id: 'tab-bar',
+  // ⚠ Tab order is significant: front-page is leftmost + default. Do not reorder.
   tabs: [
-    { id: 'tab-do-this-now',    panel: 'panel-do-this-now',    label: '⚡ Do this now',          count_id: 'count-do-this-now',    counted: 'cos.do_this_now items' },
+    { id: 'tab-front-page',     panel: 'panel-front-page',     label: '🔥 Front Page',           count_id: null,                   counted: 'no badge — count shown in #fp-budget chip instead' },
     { id: 'tab-deep-work',      panel: 'panel-deep-work',      label: '🎯 Deep Work',            count_id: 'count-deep-work',      counted: 'manually-curated focus items (rarely changes)' },
-    { id: 'tab-front-page',     panel: 'panel-front-page',     label: '🔥 Front Page',           count_id: null,                   counted: 'no badge — see #priority-grid' },
     { id: 'tab-isa',            panel: 'panel-isa',            label: '👤 Isa',                 count_id: 'count-isa',            counted: 'open Isa payment + action rows' },
     { id: 'tab-people',         panel: 'panel-people',         label: '📨 People & Bottlenecks', count_id: 'count-people',         counted: 'open signal-item rows' },
     { id: 'tab-north-stars',    panel: 'panel-north-stars',    label: '⭐ North Stars',           count_id: null,                   counted: '7 stars, fixed' },
     { id: 'tab-everything-else',panel: 'panel-everything-else',label: '🗂 Everything else',       count_id: null,                   counted: 'backlog' },
     { id: 'tab-done',           panel: 'panel-done',           label: '✅ Done',                 count_id: 'count-done',           counted: 'last 72h of completed items' },
   ],
-  retired_legacy_ids: ['ns-spine-band', 'do-this-now-band'],
-  retired_reason: 'Roger 5–6 Jun: the front page = the tabs. The old top "bands" duplicated what Do This Now + Front Page + North Stars panels already do, and were retired in v1.45/v1.46. The apply phase must STRIP these elements if it finds them at the top of current.html and never regenerate them.',
+  retired_legacy_ids: [
+    'ns-spine-band', 'do-this-now-band',   // retired v1.45–v1.46
+    'alabama-band',  'alabama-promise',    // retired v1.53
+    'tab-do-this-now', 'panel-do-this-now', 'do-this-now-list', 'count-do-this-now',  // retired v1.69
+  ],
+  retired_reason: 'Roger 5–15 Jun: each retirement removed a surface that duplicated existing components and created state-desync (tick in one place, doesn\'t propagate). The apply phase must STRIP these elements if it finds them, never regenerate them, and never recreate the Do This Now tab. Front Page is now the single action surface — CoS rank is expressed via .fire class + the .card-whynow line under the title, not via a separate panel.',
   fp_card_container: 'priority-grid',         // inside #panel-front-page
-  dtn_list_container: 'do-this-now-list',     // inside #panel-do-this-now
+  fp_budget_chip: 'fp-budget',                // single-line summary chip at top of #priority-grid
+  fp_budget_text: 'fp-budget-text',           // span where workflow writes "{N} cards · {fire} fire · ~{min} min focus left today"
+  stale_banner: 'stale-banner',               // hidden div above tab-bar; JS shows when >12h stale
+  body_compiled_at: 'data-compiled-at',       // body attribute — set to ISO timestamp on every fire; powers stale-banner JS
   global_question_band: 'cos-question-band',  // ABOVE the tab-bar; not inside any tab-panel
+  default_tab: 'front-page',                  // showTab default + TAB_NAMES[0]
 }
 
 // Notion infrastructure IDs (verified to exist on 2026-06-04).
@@ -894,21 +902,33 @@ Steps:
 
    COUNT IMPLICATIONS: the tab badges (count-do-this-now, count-people) should include Alabama items in their counts — they're regular dtn-items / signal-items, just with one extra class and one extra span.
 
-   --- TAB-BY-TAB RENDER ---
+   --- TAB-BY-TAB RENDER (v1.69 — Do This Now retired; Front Page is the only action surface) ---
 
-   ⚡ Do This Now → ol#do-this-now-list inside div#panel-do-this-now:
-   - Render each cos.do_this_now item (AFTER blocklist filter) as an INTERACTIVE LI. Pattern: copy one existing li.dtn-item from current.html and adapt. Structure: li.dtn-item with data-id/data-title/data-north-star; div.dtn-row containing [div.dtn-tick.tick onclick=toggleDone + div.dtn-body containing div.dtn-title (with span.effort) + div.why-now + button.comment-toggle.dtn-comment-btn onclick=toggleComment]; div.comment-box.dtn-comment-box containing textarea.comment-input oninput=saveComment.
-   - Order by rank.
-   - Show effort_min as the span.effort (e.g. "· 45 min · chronos") and why_now as div.why-now.
-   - Update the panel header line ("⚡ Do this now <span class='cos-count'>...</span>") to read "N left · {top-3 titles, semicolon-separated} · {tail like 'X cleared in the last 72h ✓ → Done tab'}".
-   - Update the tab badge: <span class="tab-count" id="count-do-this-now">N</span> where N = the rendered count (post-blocklist).
-   - Carry-forward rule: items already in #do-this-now-list that are not in cos.do_this_now this fire AND not on patch.fp_cards_drop AND not on cos.demotions are CARRIED FORWARD with their existing data-first-seen (don't reset). Items on demotions are removed + logged to the footer.
+   ⚠ NO LONGER A SEPARATE DO-THIS-NOW TAB. Roger 15 Jun: "The Do This Now tab has big overlaps with Front Page. And when I mark things as done, it is not done on the Front Page." Retired entirely. CoS rank is now expressed THROUGH the Front Page cards (via .fire class + .card-whynow line), not as a separate panel. If you find any tab-do-this-now button or panel-do-this-now panel or do-this-now-list ol or count-do-this-now span in current.html, REMOVE them on sight.
 
-   🔥 Front Page → div#priority-grid inside div#panel-front-page:
-   - patch.fp_cards_add (AFTER blocklist filter): insert at the top of the grid as <div class="card fire" ...> blocks. Set data-first-seen to today's UTC date. If the card has a corresponding cos.do_this_now item, add "fire" to className so it visually escalates.
-   - patch.fp_cards_drop + cos.demotions: remove the matching <div class="card" data-id="..."> blocks from #priority-grid AND from #do-this-now-list (in case Roger ticked them).
-   - patch.fp_cards_update_meta: replace .card-meta line for each id.
-   - DO NOT collapse #priority-grid behind <details class="everything-else">. The FP grid is the primary workspace.
+   🔥 Front Page → div#priority-grid inside div#panel-front-page (THIS IS THE PRIMARY SURFACE):
+
+   For each cos.do_this_now item (AFTER blocklist filter), order by rank, then:
+     1. Try to find an existing FP card whose data-title matches the action OR whose data-id matches a stable id pattern.
+     2. If MATCHED — escalate that card:
+        a. Add class "fire" if not already present (className: "card fire ...others")
+        b. Add a <div class="card-whynow">🔥 Why now: {item.why_now}</div> as the FIRST child after .card-head (overwrite any existing .card-whynow line). Period at end.
+        c. If item.is_alabama OR data-north-star="family" with Alabama trigger → also add "from-alabama" class and prepend <span class="alabama-mark">♥</span> to the .card-title.
+        d. Move the escalated card to the top of #priority-grid (preserve order of escalations by rank).
+     3. If NOT MATCHED — create a NEW card.fire at the top of #priority-grid using the same structure (card-head with title + ns-tag, card-whynow with reason, card-meta with effort_min, card-body with verbatim message context or "Carried from CoS rank N", card-controls with tick + work-btn + comment-toggle, comment-box).
+
+   patch.fp_cards_add (AFTER blocklist filter): insert as <div class="card fire" ...> blocks at the top. Set data-first-seen to today's UTC date.
+   patch.fp_cards_drop + cos.demotions: remove matching <div class="card" data-id="..."> blocks.
+   patch.fp_cards_update_meta: replace .card-meta line for each id.
+
+   ⚠ EVERY FIRE CARD MUST HAVE A .card-whynow LINE. That is the CoS reasoning made visible (Roger 15 Jun: "this is fire because Stephen needs the credit list by EOD" is more useful than just a red border). Style: italic accent color, accent-left border. CSS already in current.html. Format: "🔥 Why now: {single sentence ending in period}."
+
+   ⚠ TIME-BUDGET CHIP — populate #fp-budget at top of #priority-grid:
+     - Update <strong id="fp-budget-cards">N</strong> with N = count of .card.fire elements in #priority-grid after all rendering.
+     - Update <span class="fp-budget-text" id="fp-budget-text">...</span> with: "{cos.do_this_now.length} CoS-prioritised · ~{cos.committed_effort_min} min committed vs {cos.time_budget.remaining_work_min} min focus left today · {calendar_density} calendar"
+     - Do not delete the chip — populate it every fire.
+
+   DO NOT collapse #priority-grid behind <details class="everything-else">. The FP grid is THE primary surface, visible by default on page load.
 
    ⭐ North Stars → div#panel-north-stars only:
    - Render cos.ns_spine into the spine-rows container INSIDE #panel-north-stars (look for div#ns-spine-rows or equivalent; if missing, create one inside #panel-north-stars). Hard cap 3 lines per star.
@@ -942,13 +962,14 @@ Steps:
 
 7. ${tipRotated ? 'Rewrite the tip block using rotate-tip.py (pipe the tip JSON to its stdin).' : 'Skip tip block.'}
 
-8. Bump ALL timestamp anchors with TZ='Africa/Johannesburg' date queried NOW (re-query IMMEDIATELY before the snapshot, not at agent-start). Anchors that still exist after the 5 Jun cleanup:
+8. Bump ALL timestamp anchors with TZ='Africa/Johannesburg' date queried NOW (re-query IMMEDIATELY before the snapshot, not at agent-start). Anchors that still exist after the 5–15 Jun cleanups:
    (1) kicker time-of-day phrase (use patch.kicker; includes slot label)
    (2) subtitle "Compiled HH:MM SAST..." (prepend time to patch.subtitle)
    (3) dateline-edition slot
    (4) ns-last-calibrated
    (5) footer-text Compiled line
    (6) pullquote opening clock
+   (7) ⚠ NEW v1.69 — <body data-compiled-at="..."> attribute. Set to the current SAST instant in ISO format with timezone, e.g. data-compiled-at="2026-06-15T10:18:19+02:00". This powers the stale-data banner JS; without it the banner never shows even when the page is days old. Use the same Bash query for SAST as the other anchors.
    (Anchors REMOVED 5 Jun by Roger: inbox-strip-hed [section deleted], old lede h2 [section deleted], old day-card week-banner [in collapsed Everything Else but unused].)
 
 9. **WhatsApp Q&A loop — send the CoS question if any:**
