@@ -679,7 +679,7 @@ The ACTIVE_DEALS registry encodes deals that are running actively. Each entry ha
 For EVERY active deal entry (active=true), do the following BEFORE NS spine / do_this_now construction:
 
 1. Scan patch.fp_cards_add + the existing FP grid in current.html. For each FP card whose data-title or data-id contains any of the deal's keywords (case-insensitive), mark it as a forced-fire candidate.
-2. Add ALL forced-fire candidates to cos.do_this_now at importance=3, deadline_today=true, ns=deal.ns, rule_applied="rule-active-deal-${deal.id}", why_now = deal.why_now_template OR a more specific reason from the sweep deltas if you have one (prefer specific over template).
+2. Add ALL forced-fire candidates to cos.do_this_now at importance=3, deadline_today=true, ns=<the deal's ns field>, rule_applied="rule-active-deal-<the deal's id>" (e.g. rule-active-deal-m-kopa), why_now = the deal's why_now_template OR a more specific reason from the sweep deltas if you have one (prefer specific over template).
 3. These items are IMMUNE to revealed-preference demotion. Never demote an active-deal card — if Roger ignores it for 3 fires, raise a cos_question asking but never auto-demote.
 4. Active-deal items DO NOT count against the time_budget cap (load_ratio can exceed 1.25 because of them).
 
