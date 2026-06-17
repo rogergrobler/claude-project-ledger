@@ -87,6 +87,36 @@ const ALABAMA = {
   sentinel_band_id: 'alabama-band',
 }
 
+// ── ACTIVE-DEALS PRIORITY REGISTRY (Roger's standing high-priority deals) ──
+// Roger's instruction 2026-06-17: keep these deals front-and-centre on every
+// fire — they are the active running deals that drive the work week. Any FP
+// card whose data-title or data-id contains a matching keyword gets the same
+// treatment as a cos.do_this_now item: importance=3, .fire class, .card-whynow
+// line under the title. Immune to revealed-preference demotion.
+//
+// Append-only registry — add new active deals here when they enter the active
+// pipeline; retire by setting active=false (keep the entry for audit trail).
+const ACTIVE_DEALS = [
+  {
+    id: 'm-kopa',
+    label: 'M-Kopa',
+    keywords: ['M-Kopa', 'MKopa', 'Mkopa', 'mkopa', 'Aditus', 'aditus', 'Project Aditus'],
+    why_now_template: 'M-Kopa / Project Aditus deal is running actively — Roger 17 Jun standing rule.',
+    ns: 'chronos',
+    active: true,
+    added: '2026-06-17',
+  },
+  {
+    id: 'firstrand-holdco',
+    label: 'FirstRand Optasia Holdco',
+    keywords: ['FirstRand Holdco', 'FirstRand Optasia', 'Firstrand Holdco', 'firstrand-holdco', 'FirstRand-Optasia-Holdco', 'Optasia Holdco'],
+    why_now_template: 'FirstRand Optasia Holdco deal is running actively — Roger 17 Jun standing rule.',
+    ns: 'portfolio',
+    active: true,
+    added: '2026-06-17',
+  },
+]
+
 // ── FABRICATION BLOCKLIST (Roger's standing kill-list) ─────────────────────
 // Items the CoS / synthesize phases MUST NOT regenerate. Each entry was
 // flagged by Roger as a hallucination during a live fire. The apply phase
@@ -642,6 +672,19 @@ You read the following inputs:
 10. Yesterday's dashboard state (what was in top-N, what got done vs ignored)
 
 You produce:
+
+## ⚠ ACTIVE-DEALS PRIORITY (always-include, supreme business-priority — Roger 17 Jun)
+The ACTIVE_DEALS registry encodes deals that are running actively. Each entry has a label, a list of keywords to match against card titles/ids/data-titles, and a why_now_template.
+
+For EVERY active deal entry (active=true), do the following BEFORE NS spine / do_this_now construction:
+
+1. Scan patch.fp_cards_add + the existing FP grid in current.html. For each FP card whose data-title or data-id contains any of the deal's keywords (case-insensitive), mark it as a forced-fire candidate.
+2. Add ALL forced-fire candidates to cos.do_this_now at importance=3, deadline_today=true, ns=deal.ns, rule_applied="rule-active-deal-${deal.id}", why_now = deal.why_now_template OR a more specific reason from the sweep deltas if you have one (prefer specific over template).
+3. These items are IMMUNE to revealed-preference demotion. Never demote an active-deal card — if Roger ignores it for 3 fires, raise a cos_question asking but never auto-demote.
+4. Active-deal items DO NOT count against the time_budget cap (load_ratio can exceed 1.25 because of them).
+
+Currently active (Roger 17 Jun 2026):
+${ACTIVE_DEALS.filter(d => d.active).map(d => '• ' + d.label + ' (id: ' + d.id + ', NS: ' + d.ns + ', keywords: ' + JSON.stringify(d.keywords) + ')').join('\n')}
 
 ## ⚠ ALABAMA-FIRST PASS (must run BEFORE NS spine / do_this_now construction)
 ${ALABAMA.person} (alias "${ALABAMA.whatsapp_alias}" on WhatsApp, number ${ALABAMA.whatsapp_number}) is Roger's wife. The rule **${ALABAMA.rule_id}** (status=active, supreme) overrides every other rule including: ${ALABAMA.overrides.join(', ')}.
