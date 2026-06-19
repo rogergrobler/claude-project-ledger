@@ -99,12 +99,21 @@ const ALABAMA = {
 const ACTIVE_DEALS = [
   {
     id: 'm-kopa',
-    label: 'M-Kopa',
-    keywords: ['M-Kopa', 'MKopa', 'Mkopa', 'mkopa', 'Aditus', 'aditus', 'Project Aditus'],
-    why_now_template: 'M-Kopa / Project Aditus deal is running actively — Roger 17 Jun standing rule.',
+    label: 'M-Kopa (fund-raising + DD)',
+    keywords: [
+      'M-Kopa', 'MKopa', 'Mkopa', 'mkopa', 'm-kopa',
+      'Aditus', 'aditus', 'Project Aditus',
+      // 19 Jun — Roger said "the M-Kopa deal and fund raising is super important. And needs to be front and centre." Adding explicit fund-raising aliases.
+      'co-investor', 'accession', 'accession undertaking', 'NDA accession', 'NDA wave',
+      'Jesse Moore', 'Jesse Zigmund',
+      'LP commit', 'Singapore SPV', 'Lima Singapore', 'Brendan Gallagher',
+      'IC pack', 'IC minutes', 'IC reading pack',
+    ],
+    why_now_template: 'M-Kopa fund-raising is super important per Roger 19 Jun — front and centre, always fire.',
     ns: 'chronos',
     active: true,
     added: '2026-06-17',
+    last_amplified: '2026-06-19',
   },
   {
     id: 'firstrand-holdco',
@@ -963,6 +972,23 @@ Steps:
    patch.fp_cards_add (AFTER blocklist filter): insert as <div class="card fire" ...> blocks at the top. Set data-first-seen to today's UTC date.
    patch.fp_cards_drop + cos.demotions: remove matching <div class="card" data-id="..."> blocks.
    patch.fp_cards_update_meta: replace .card-meta line for each id.
+
+   ⚠ CARD-CONTROLS STRUCTURE (v1.80+): every new FP card MUST use the 4-button card-controls block:
+       <div class="card-controls">
+         <button class="card-btn done" onclick="cardDone(this)" title="Mark done">✓ Done</button>
+         <button class="card-btn defer" onclick="cardDefer(this)" title="Defer">⏭ Defer</button>
+         <button class="card-btn delegate" onclick="cardDelegate(this)" title="Delegate to Isa">→ Isa</button>
+         <button class="card-btn delete" onclick="cardDelete(this)" title="Delete permanently">✕ Delete</button>
+         [optional <a class="work-btn" href="..." target="_blank" onclick="workOnThis(event, this)">→ Open</a>]
+         <button class="comment-toggle" onclick="toggleComment(this)">Add note</button>
+         <div class="tick" onclick="toggleDone(this)" style="display:none"></div>
+       </div>
+   Do NOT regenerate the old single-tick + "Mark done" label structure. The hidden tick is kept so toggleDone state still works under the hood when cardDone fires.
+
+   ⚠ PAYLOAD ROUTING — read these new sections from the latest Send-to-Claude payload:
+     - "## Items deferred (N)" — entries like "- **Title** \`[id]\` — defer until YYYY-MM-DD". For each: drop the card from #priority-grid, log to a deferred-registry, plan to re-surface on that date (next fire that runs on/after the date should re-add the card).
+     - "## Items delegated to Isa (N)" — entries with id, title, and a "  > note" block. For each: drop from #priority-grid, ADD to #panel-isa as an action row (li.row inside isa-actions-band) with the note attached as a comment-box pre-filled.
+     - "## Items deleted (N)" — entries marked "permanent, do not re-fabricate". Add the id (and a slug of the title) to FABRICATION_BLOCKLIST in a future commit; for this fire, just drop from grid and log to footer audit.
 
    ⚠ EVERY FIRE CARD MUST HAVE A .card-whynow LINE. That is the CoS reasoning made visible (Roger 15 Jun: "this is fire because Stephen needs the credit list by EOD" is more useful than just a red border). Style: italic accent color, accent-left border. CSS already in current.html. Format: "🔥 Why now: {single sentence ending in period}."
 
