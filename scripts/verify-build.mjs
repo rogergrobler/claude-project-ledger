@@ -59,7 +59,7 @@ const scriptBodies = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
 
 // ── T2: Required handlers ─────────────────────────────────────────────────
 {
-  const required = ['toggleDone', 'toggleComment', 'saveComment', 'sendToClaude', 'showTab', 'cardDone', 'cardDefer', 'cardDelegate', 'cardDelete'];
+  const required = ['toggleDone', 'toggleComment', 'saveComment', 'sendToClaude', 'showTab', 'cardDone', 'cardDefer', 'cardDelegate', 'cardDelete', 'cardRecur'];
   const missing = required.filter(fn =>
     !new RegExp(`(?:window\\.)?${fn}\\s*=\\s*function|function\\s+${fn}\\b`).test(html));
   if (missing.length) fail('T2 Required handlers', `missing: ${missing.join(', ')}`);

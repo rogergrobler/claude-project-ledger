@@ -1027,22 +1027,26 @@ Steps:
    patch.fp_cards_drop + cos.demotions: remove matching <div class="card" data-id="..."> blocks.
    patch.fp_cards_update_meta: replace .card-meta line for each id.
 
-   ⚠ CARD-CONTROLS STRUCTURE (v1.80+): every new FP card MUST use the 4-button card-controls block:
+   ⚠ CARD-CONTROLS STRUCTURE (v1.85+): every new FP card MUST use the 5-button card-controls block:
        <div class="card-controls">
          <button class="card-btn done" onclick="cardDone(this)" title="Mark done">✓ Done</button>
          <button class="card-btn defer" onclick="cardDefer(this)" title="Defer">⏭ Defer</button>
          <button class="card-btn delegate" onclick="cardDelegate(this)" title="Delegate to Isa">→ Isa</button>
+         <button class="card-btn recur" onclick="cardRecur(this)" title="Recur on a cadence">⟲ Recur</button>
          <button class="card-btn delete" onclick="cardDelete(this)" title="Delete permanently">✕ Delete</button>
          [optional <a class="work-btn" href="..." target="_blank" onclick="workOnThis(event, this)">→ Open</a>]
          <button class="comment-toggle" onclick="toggleComment(this)">Add note</button>
          <div class="tick" onclick="toggleDone(this)" style="display:none"></div>
        </div>
+   ⟲ Recur is the verb for chronic recurring items (M-Kopa IC minutes, monthly portfolio reviews, etc.) that were previously stuck in a Done+re-add loop. Cadences: 7 / 14 / 30 / 90 days. Card hides until next cycle, then auto-resurfaces.
    Do NOT regenerate the old single-tick + "Mark done" label structure. The hidden tick is kept so toggleDone state still works under the hood when cardDone fires.
 
    ⚠ PAYLOAD ROUTING — read these new sections from the latest Send-to-Claude payload:
      - "## Items deferred (N)" — entries like "- **Title** \`[id]\` — defer until YYYY-MM-DD". For each: drop the card from #priority-grid, log to a deferred-registry, plan to re-surface on that date (next fire that runs on/after the date should re-add the card).
      - "## Items delegated to Isa (N)" — entries with id, title, and a "  > note" block. For each: drop from #priority-grid, ADD to #panel-isa as an action row (li.row inside isa-actions-band) with the note attached as a comment-box pre-filled.
      - "## Items deleted (N)" — entries marked "permanent, do not re-fabricate". Add the id (and a slug of the title) to FABRICATION_BLOCKLIST in a future commit; for this fire, just drop from grid and log to footer audit.
+     - "## Items recurring (N)" — entries with id, title, and "every N days" cadence. For each: drop from #priority-grid for this fire; the dashboard JS will auto-resurface on the next cycle date via the data-recur-next attribute. No workflow re-rendering needed unless the cadence date has passed (in which case re-add at top of FP with .fire class).
+     - Plus: PAYLOAD NOTES → DECISIONS LOG (v1.85+). For each entry in "## Notes added (N)" where the underlying card was also marked done (it appears in "## Items marked done"), check if the note is ≥5 words AND has a declarative shape ("I am going to", "Going with", "We decided", "I picked", "Routing via", etc.). If yes, append the note to the Notion CoS Specific Decisions log (page id 375493ab-3bff-8110-a675-fc2821c73e7f) as a new entry: title="Decision on <card title>", body=Roger's note verbatim + timestamp. This persists decisions like "I am going to see GT" instead of losing them in the audit footer prose.
 
    ⚠ EVERY FIRE CARD MUST HAVE A .card-whynow LINE. That is the CoS reasoning made visible (Roger 15 Jun: "this is fire because Stephen needs the credit list by EOD" is more useful than just a red border). Style: italic accent color, accent-left border. CSS already in current.html. Format: "🔥 Why now: {single sentence ending in period}."
 
