@@ -87,6 +87,46 @@ const ALABAMA = {
   sentinel_band_id: 'alabama-band',
 }
 
+// ── ALABAMA INTIMACY FILTER (Roger 20 Jun — Isa sees this dashboard too) ──
+// Critical privacy boundary. Alabama-supremacy stands for TASKS (Phone Louisa,
+// Order iPad cover, Try on suits). Emotional / relational / intimate content
+// (apologies, fights, expressions of love, vulnerable check-ins, mental-health
+// references) must NEVER appear on the dashboard — those exchanges live in
+// WhatsApp directly between Roger and Alabama, not on a surface Isa reads.
+//
+// Origin 2026-06-20: v1.82 surfaced a 10:57 SAST apology message verbatim
+// in a fire FP card visible to Isa. Roger flagged immediately. Stripped + this
+// filter built.
+const ALABAMA_INTIMACY_FILTER = {
+  // Any Alabama message matching ANY of these signals is INTIMATE — suppress entirely from the dashboard.
+  // Don't render the card, don't include in cos.alabama_actions, don't mention in NS spine prose, don't put in any audit footer.
+  intimate_keyword_patterns: [
+    // Apologies
+    'sorry', 'i am sorry', "i'm sorry", 'apologise', 'apologize', 'forgive', 'i was wrong', 'my fault',
+    // Fight / conflict
+    'hurt', 'angry', 'frustrated', 'upset', 'disappointed', 'we need to talk', 'this is hard',
+    'fight', 'argument', 'fought', 'argued', 'why did you', 'you never', 'you always',
+    // Love / longing
+    'i love you', 'love you', 'miss you', 'thinking of you', 'mean a lot', 'proud of you',
+    'grateful', 'special', 'breaks my heart', 'broke my heart', 'heart breaks',
+    // Vulnerable check-ins
+    'are you ok', 'are you okay', 'you alright', 'how are you really', 'how do you feel',
+    'what are you feeling', "what's going on with you", 'talk to me',
+    // Mental health / state
+    'taking strain', 'difficult to', 'cannot cope', "can't cope", 'overwhelmed', 'exhausted with',
+    'lonely', 'anxious', 'depressed', 'struggling', 'not coping', "i'm not ok",
+    // Intimacy
+    'just us', 'between us', 'personal', 'private', 'intimate',
+  ],
+  // If a message has BOTH a task and intimate content, extract the task ONLY and render that.
+  // The mixed case is the common one: "I love you, please pick up Daisy" → render "Pick up Daisy" stripped of "I love you".
+  mixed_mode: 'extract_task_strip_emotional',
+  // What appears on the dashboard for purely intimate exchanges?
+  // NOTHING. Not a placeholder card, not a counter, not a hint. Zero surface.
+  // Roger checks WhatsApp directly for intimate content. The dashboard is public-safe.
+  purely_intimate_surface: 'none',
+}
+
 // ── ACTIVE-DEALS PRIORITY REGISTRY (Roger's standing high-priority deals) ──
 // Roger's instruction 2026-06-17: keep these deals front-and-centre on every
 // fire — they are the active running deals that drive the work week. Any FP
@@ -649,7 +689,7 @@ const COS_SCHEMA = {
     },
     alabama_actions: {
       type: 'array',
-      description: 'Alabama-first sweep output. ONE entry per actionable WhatsApp message from Elca (alias Alabama, number 27721818934) since the previous fire. Emit even if empty (i.e. []). Every entry here also appears in do_this_now at rank 0 and in patch.fp_cards_add as a .card.fire — this array is the SOURCE OF TRUTH for the #alabama-band render in the apply phase.',
+      description: 'Alabama-first sweep output AFTER intimacy filter. ONE entry per actionable WhatsApp message from Elca (alias Alabama, number 27721818934) since the previous fire — but ONLY if the message passes the intimacy filter (no intimate keywords) OR is the task-extracted residue of a mixed message. Purely intimate exchanges (apologies, fights, love expressions, vulnerable check-ins, mental-health content) MUST NOT appear here — they have zero dashboard surface. Emit empty array if all Alabama messages this fire were purely intimate (i.e. []). Isa reads this dashboard; personal exchanges live in WhatsApp only.',
       items: {
         type: 'object',
         properties: {
@@ -718,7 +758,15 @@ Before constructing ns_spine and do_this_now, do this:
    • cos.alabama_actions = []
    • The apply phase will render "No new action messages from Alabama since last fire" in the band.
 
-5. Alabama action items are IMMUNE to:
+5. ⚠ INTIMACY FILTER (Roger 20 Jun, supersedes any other rendering): for EACH message before deciding it's an action, run an intimacy check. If the message contains ANY of these patterns (case-insensitive), it's INTIMATE — handle accordingly:
+   Intimate keyword patterns: ${ALABAMA_INTIMACY_FILTER.intimate_keyword_patterns.map(k => '"' + k + '"').join(', ')}
+   Three modes:
+   • PURELY INTIMATE (intimate-match, no task-shape): suppress ENTIRELY. Don't add to cos.alabama_actions, don't mention in NS spine prose, don't put in audit footer, don't put a placeholder card. Zero surface on the dashboard. Roger handles in WhatsApp directly. Isa MUST NOT see these.
+   • MIXED (intimate-match AND task-shape, e.g. "I love you, please pick up Daisy"): EXTRACT THE TASK ONLY ("Pick up Daisy") and render as a normal Alabama action. STRIP the emotional preamble entirely. The action stands on its own; the intimate framing does not appear anywhere.
+   • PURELY TASK (no intimate-match, has task-shape): render normally per the surfacing rules below.
+   Rationale: Isa (Roger's assistant) reads this dashboard. Personal exchanges between Roger and Alabama are not for her. Tasks are.
+
+6. Alabama action items are IMMUNE to:
    • revealed-preference 3-strike-ask (they don't accrue ignore-strikes)
    • time_budget cap (they're always-include overrides)
    • load_ratio cap (committed_effort_min sum can exceed 1.25× for Alabama items)
