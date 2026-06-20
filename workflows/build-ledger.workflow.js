@@ -182,6 +182,12 @@ const FABRICATION_BLOCKLIST = [
     reason: 'Fabricated CoS task. Roger killed it 2026-06-05 (v1.42) — "I have no idea what you\'re talking about" — and again 2026-06-06 (v1.46) — "This is a nonsense, fabricated action. Delete everywhere". Recurrence means the CoS is rebuilding it from a sweep echo; never regenerate.',
     flagged: '2026-06-05',
   },
+  {
+    id: 'fp-sat-alabama-apology-pending',
+    title_substrings: ['Alabama unanswered on Roger\'s 10:57 apology', 'Alabama apology message', 'hold space for her reply', 'apology pending', 'taking strain and that it is difficult to love'],
+    reason: 'Roger deleted this card via the dashboard Delete button on 2026-06-20. Card was a privacy violation: it surfaced an intimate Alabama exchange (Roger\'s 10:57 SAST apology message) verbatim to Isa via the dashboard. Stripped + ALABAMA_INTIMACY_FILTER built same day. Never re-fabricate. See [[feedback-alabama-intimacy-filter]].',
+    flagged: '2026-06-20',
+  },
 ]
 
 // ── STRUCTURAL BASELINE (v1.46+ tabbed layout — FROZEN) ────────────────────
