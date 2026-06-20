@@ -352,9 +352,37 @@ ${CONTEXT}`,
   },
   {
     key: 'gmail',
-    prompt: `Pull Gmail threads with newer_than:1d via mcp__5508cee3-3894-430d-ad42-a90478ec1298__search_threads.
-Always include targeted queries: "Lima", "Brendan", "Tyme D1", "Coen", "Aditus", "Willem Els", "Eden GP", "Hloni Motsohi", "Optasia", "Salvador", "Bassim", "Yusuf", "Atlax", "WeR1", "Geordie", "Juraj Priciel", "Tjaart", "Pieter".
-For each thread return latest message sender, time, and one-line substance.
+    prompt: `Pull Gmail via mcp__5508cee3-3894-430d-ad42-a90478ec1298__search_threads. The sweep must surface every actionable email — Roger's 20 Jun audit showed only 50-60% hit rate previously. THREE rules upgrade that:
+
+RULE 1 — 7-DAY LOOKBACK (not 1-day). Use newer_than:7d on every query. Many actionable emails take 2-5 days to require a response; a 1-day window misses them. Yes this means more threads; the synthesize phase will dedup against existing FP cards.
+
+RULE 2 — PER-DEAL FILTERS (mandatory). Run these queries in addition to general inbox:
+  • "M-Kopa OR MKopa OR Aditus OR 'Project Aditus' newer_than:7d is:important"
+  • "FirstRand OR Optasia OR 'Project FirstRand' newer_than:7d is:important"
+  • "Crossfin newer_than:7d is:important"
+  • "TTB OR 'Project 529' OR TwoThreeBird newer_than:7d is:important"
+  • "Endeavor newer_than:7d is:important"
+  • "Lima OR Brendan OR 'Tyme D1' OR Coen newer_than:7d is:important"
+  • "Eden GP OR Hloni OR PwC newer_than:7d is:important"
+  • "Salvador OR Bassim OR Yusuf newer_than:7d is:important"
+  • "Pieter OR Tjaart OR Juraj OR Geordie OR Atlax OR WeR1 newer_than:7d is:important"
+  • "Mayur OR Willem Els OR Christo Roos newer_than:7d is:important"
+For each thread, extract: sender of latest message, time, subject, one-line substance.
+
+RULE 3 — OWE-A-RESPONSE DETECTION. For every thread surfaced, classify Roger's position:
+  • IS HE WAITING ON THEM? (last message in thread is from Roger AND no reply yet)
+  • IS THEY WAITING ON HIM? (last message NOT from Roger AND contains a question, an attachment for review, an ask, or a deliverable shape)
+  • INFORMATIONAL? (FYI broadcast, no action implied)
+Mark each thread's "roger_position" as "owes_response" / "awaiting_them" / "informational". Items with "owes_response" go straight to the actionable list — these are the threads where Roger is the bottleneck.
+
+RULE 4 — DELIVERABLE-SHAPE ATTACHMENTS = ACTIONABLE. If a thread contains a PDF, PPT, XLSX, DOCX attachment from a counterparty (NOT from Roger or Isa), treat it as a deliverable for Roger to read/review. Examples: a board pack, an IC paper, a financial model, a research note, a mark-up. Do NOT filter these out as "informational" even if there's no explicit ask — receiving a board pack IS an implicit ask to read it before the board.
+
+RULE 5 — IGNORE these (NOT actionable noise): calendar accepts/declines/invites (separate calendar sweep handles those), newsletter subscriptions, github notifications, billing/system alerts from Anthropic/Google/Stripe/etc., social network notifications, marketing.
+
+For each actionable thread return: sender of latest message, time (ISO), subject, one-line substance, roger_position (owes_response/awaiting_them/informational), has_deliverable_attachment (bool), deal_tag (m-kopa/firstrand/optasia/crossfin/ttb/endeavor/lima/eden-gp/other), thread_id, action_url (Gmail thread URL like https://mail.google.com/mail/u/0/#inbox/<thread_id>).
+
+The synthesize phase will fold these into patch.fp_cards_add for any thread where roger_position="owes_response" AND no existing FP card already covers it (semantic dedup will catch dupes). "awaiting_them" goes to People & Bottlenecks as a tracking row. "informational" goes to Everything Else.
+
 ${CONTEXT}`,
   },
   {
@@ -1030,7 +1058,7 @@ Steps:
    ⚠ SEMANTIC DEDUP (v1.88+, MANDATORY before any card is added):
    Before inserting ANY new card from patch.fp_cards_add or cos.do_this_now, run this check against every existing card in #priority-grid:
 
-   1. URL fingerprint match: if the new card's data-action-url shares a SUBSTANTIAL identifier with an existing card (e.g. same Drive file id `/d/<id>/`, same Gmail thread `#inbox/<id>`, same wa.me number), they target the same underlying artefact — merge, do not duplicate. Extract the identifier with: Drive `/d/([A-Za-z0-9_-]{20,})`, Gmail `#inbox/([0-9a-f]{16,})` or `#search/([^"&]+)`, WhatsApp `wa.me/(\\d+)`.
+   1. URL fingerprint match: if the new card's data-action-url shares a SUBSTANTIAL identifier with an existing card — same Drive file id (regex pattern: /d/ followed by 20+ alphanumeric/dash/underscore chars), same Gmail thread (#inbox/ followed by 16+ hex chars, or #search/ followed by non-quote chars), same wa.me number (wa.me/ followed by digits) — they target the same underlying artefact. Merge, do not duplicate.
    2. Title token-Jaccard similarity: lowercase both titles, strip punctuation, drop stopwords (the/a/an/of/to/for/with/and/in/on/at/from/by), split into a token set, compute |A∩B|/|A∪B|. If ≥0.70, treat as semantic duplicate.
    3. Same-day creation: if both candidates have data-first-seen within 48h of each other, the threshold drops to 0.55 (recent sweep echo more likely).
 
@@ -1041,7 +1069,7 @@ Steps:
    • DO NOT render the new card. The new id never appears anywhere.
    • LOG to the footer audit prose: "dedup: <new-id> merged into <kept-id> (signature: <reason>)".
 
-   EXAMPLE (the v1.86 TTB bug): fp-sat-ttb-board-pack-read had data-action-url containing Drive file `1RPry1ivTB1Z-F0153c1qrsfiXLXkrNbh`. fp-fri-ttb-board-pack-project529 had the same Drive id. URL fingerprint match → drop the new (sat) one, keep the old (fri) one, log the merge.
+   EXAMPLE (the v1.86 TTB bug): fp-sat-ttb-board-pack-read had data-action-url containing Drive file id 1RPry1ivTB1Z-F0153c1qrsfiXLXkrNbh. fp-fri-ttb-board-pack-project529 had the same Drive id. URL fingerprint match → drop the new (sat) one, keep the old (fri) one, log the merge.
 
    EXCEPTION: ACTIVE_DEALS-flagged cards do not dedup against each other unless URL fingerprints match exactly — different scope notes for the same active deal can coexist.
 
