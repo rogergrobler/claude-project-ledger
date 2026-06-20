@@ -1027,6 +1027,24 @@ Steps:
    patch.fp_cards_drop + cos.demotions: remove matching <div class="card" data-id="..."> blocks.
    patch.fp_cards_update_meta: replace .card-meta line for each id.
 
+   ⚠ SEMANTIC DEDUP (v1.88+, MANDATORY before any card is added):
+   Before inserting ANY new card from patch.fp_cards_add or cos.do_this_now, run this check against every existing card in #priority-grid:
+
+   1. URL fingerprint match: if the new card's data-action-url shares a SUBSTANTIAL identifier with an existing card (e.g. same Drive file id `/d/<id>/`, same Gmail thread `#inbox/<id>`, same wa.me number), they target the same underlying artefact — merge, do not duplicate. Extract the identifier with: Drive `/d/([A-Za-z0-9_-]{20,})`, Gmail `#inbox/([0-9a-f]{16,})` or `#search/([^"&]+)`, WhatsApp `wa.me/(\\d+)`.
+   2. Title token-Jaccard similarity: lowercase both titles, strip punctuation, drop stopwords (the/a/an/of/to/for/with/and/in/on/at/from/by), split into a token set, compute |A∩B|/|A∪B|. If ≥0.70, treat as semantic duplicate.
+   3. Same-day creation: if both candidates have data-first-seen within 48h of each other, the threshold drops to 0.55 (recent sweep echo more likely).
+
+   When a semantic duplicate is detected:
+   • KEEP the older card (lower data-first-seen) — preserves Day-N continuity. Update its data-action-url to the more authoritative one if differs (prefer Drive over Gmail over WhatsApp; prefer with-query-params over without).
+   • MERGE the body: take the union of substantive sentences (deduped) into the older card's body, capped at ~500 chars.
+   • UPDATE the older card's data-meta to add "merged from <new-id>" and the current SAST timestamp.
+   • DO NOT render the new card. The new id never appears anywhere.
+   • LOG to the footer audit prose: "dedup: <new-id> merged into <kept-id> (signature: <reason>)".
+
+   EXAMPLE (the v1.86 TTB bug): fp-sat-ttb-board-pack-read had data-action-url containing Drive file `1RPry1ivTB1Z-F0153c1qrsfiXLXkrNbh`. fp-fri-ttb-board-pack-project529 had the same Drive id. URL fingerprint match → drop the new (sat) one, keep the old (fri) one, log the merge.
+
+   EXCEPTION: ACTIVE_DEALS-flagged cards do not dedup against each other unless URL fingerprints match exactly — different scope notes for the same active deal can coexist.
+
    ⚠ CARD-CONTROLS STRUCTURE (v1.85+): every new FP card MUST use the 5-button card-controls block:
        <div class="card-controls">
          <button class="card-btn done" onclick="cardDone(this)" title="Mark done">✓ Done</button>
