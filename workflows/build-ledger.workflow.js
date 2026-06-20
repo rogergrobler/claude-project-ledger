@@ -38,6 +38,7 @@ export const meta = {
     { title: 'Apply',         detail: 're-inject frozen JS (self-heal) + apply patches + bump timestamp anchors; never touch <script> blocks' },
     { title: 'Verify',        detail: 'publish gate — JS parses + core handlers present; abort the run if not' },
     { title: 'Publish',       detail: 'snapshot + git clone spock-site-build + commit + push + poll for live' },
+    { title: 'Draft replies', detail: 'post-publish — generate Gmail drafts for Tier 5/4 and Tier 3 owes_response threads in Roger\'s calibrated voice' },
   ],
 }
 
@@ -76,8 +77,8 @@ data sources.`
 const ALABAMA = {
   person: 'Elca Grobler',
   whatsapp_alias: 'Alabama',
-  whatsapp_number: '27721818934',
-  whatsapp_deeplink: 'https://wa.me/27721818934',
+  whatsapp_number: '919908732597',
+  whatsapp_deeplink: 'https://wa.me/919908732597',
   importance_rating: '3 · Always promote',
   ns: 'family',
   action_keywords: ['action','please','call','phone','fetch','pick up','remember','tell','buy','book','sign','reply','send','drop off','collect','order','organise','organize','sort','fix','arrange'],
@@ -126,6 +127,23 @@ const ALABAMA_INTIMACY_FILTER = {
   // Roger checks WhatsApp directly for intimate content. The dashboard is public-safe.
   purely_intimate_surface: 'none',
 }
+
+// ── SEED TASKS (forced candidate cards — Spock-injected, no inbound required) ──
+// Roger's instruction 2026-06-20: certain follow-ups need to surface even when
+// no inbound has arrived. The sweep treats these the same as a Notion Respond
+// Pending entry — they get folded straight into patch.fp_cards_add candidates
+// downstream, and routed through the same blocklist + dedup gates as anything
+// else. Append-only; once Roger marks the underlying task done via Send-to-
+// Claude payload, the FP card drops naturally and the SEED_TASKS entry can be
+// retired (or left in for audit trail).
+const SEED_TASKS = [
+  {
+    who: 'David Ryan',
+    topic: 'Follow-up re Sharni Quinn (WellGuide)',
+    source: 'Spock seed 2026-06-20',
+    added: '2026-06-20',
+  },
+]
 
 // ── ACTIVE-DEALS PRIORITY REGISTRY (Roger's standing high-priority deals) ──
 // Roger's instruction 2026-06-17: keep these deals front-and-centre on every
@@ -289,6 +307,108 @@ log(preflight.healthy
 
 const WHATSAPP_HEALTHY = preflight.healthy
 
+// ── Phase 0.6: Importance Layer fetch (data-driven sweep targeting) ────────
+// Roger 20 Jun: the Gmail + WhatsApp sweep was previously driven by hardcoded
+// per-deal keyword queries that drifted from his actual priorities. Move the
+// truth into the Notion Importance Layer DB so the sweep targets exactly the
+// people Roger has rated. Tier 5 = Supreme (Alabama). Tier 4 = Inner circle
+// (family + closest partners). Tier 3 = Active deals / portfolio principals.
+// Tier 2 = Important but not always-fire. Tier 1 = Wide network, action-only.
+// Tier -1 = Suppressed (noreply / transactional / marketing).
+//
+// Anyone NOT in the DB falls through to the existing Everything Else logic —
+// the sweep doesn't ignore unknown senders, it just doesn't tier-route them.
+
+const IMPORTANCE_LAYER_SCHEMA = {
+  type: 'object',
+  properties: {
+    fetched_at: { type: 'string', description: 'ISO timestamp of fetch' },
+    tier_5: { type: 'array', items: { type: 'object' } },
+    tier_4: { type: 'array', items: { type: 'object' } },
+    tier_3: { type: 'array', items: { type: 'object' } },
+    tier_2: { type: 'array', items: { type: 'object' } },
+    tier_1: { type: 'array', items: { type: 'object' } },
+    tier_minus_1: { type: 'array', items: { type: 'object' }, description: 'Suppressed senders — explicit filter list' },
+    totals: {
+      type: 'object',
+      properties: {
+        tier_5: { type: 'number' },
+        tier_4: { type: 'number' },
+        tier_3: { type: 'number' },
+        tier_2: { type: 'number' },
+        tier_1: { type: 'number' },
+        tier_minus_1: { type: 'number' },
+      },
+    },
+    fetch_error: { type: 'string', description: 'non-empty if DB unreachable' },
+  },
+  required: ['fetched_at', 'tier_5', 'tier_4', 'tier_3', 'tier_2', 'tier_1', 'tier_minus_1', 'totals'],
+}
+
+const importance = await agent(
+  `Fetch Roger's Notion Importance Layer database (id ${NOTION_IDS.cos_importance_db}) and build an in-memory tier map for the sweep.
+
+Step 1: Query the DB via mcp__7cf2ebb5-ae5a-4a10-9ec8-1272580794b5__notion-fetch with id="${NOTION_IDS.cos_importance_db}". If the DB has a Tier property (numeric or select), group every entry by that property. If tier is stored as a select like "Tier 5 · Supreme", parse out the integer.
+
+Step 2: For EACH person, extract:
+  • name (Title)
+  • all emails (any "Email" / "Emails" / "Personal email" / "Work email" properties — capture every address you find; people commonly have 2-3)
+  • whatsapp number (digits-only, no + or spaces; pull from "WhatsApp" / "Phone" / "Mobile" property)
+  • relationship_type (Portfolio / Investor / Advisor / Family / Service-provider / etc.)
+  • why_important (one-line rationale from the Importance / Notes / Why field if present)
+
+Step 3: Bucket into tier_5, tier_4, tier_3, tier_2, tier_1, tier_minus_1. Tier -1 (or "Suppressed") = explicit suppression list — these are senders the sweep MUST filter out (noreply@, notifications@, calendar accept artefacts, LinkedIn newsletters, banking transactional). If the DB has no Tier -1 entries, populate tier_minus_1 with a default list:
+  • noreply@*, no-reply@*, notifications@*, donotreply@*
+  • calendar-notification@google.com (accept/decline artefacts — separate calendar sweep handles real bookings)
+  • linkedin.com newsletters / connection notifications
+  • Anthropic/Stripe/GitHub/Google billing & system alerts
+  • marketing@* / news@* / hello@<bulk-marketing>
+
+Step 4: Return the structured map. If the DB fetch fails for any reason, set fetch_error to the error string and return empty tier arrays — the sweep will fall back to the legacy hardcoded behaviour in that case.
+
+${CONTEXT}`,
+  {
+    label: 'importance-layer-fetch',
+    phase: 'Sweep',
+    schema: IMPORTANCE_LAYER_SCHEMA,
+  }
+)
+
+const IMPORTANCE_AVAILABLE = !importance.fetch_error && (importance.totals?.tier_5 || importance.totals?.tier_4 || importance.totals?.tier_3 || 0) > 0
+log(IMPORTANCE_AVAILABLE
+    ? `Importance Layer fetched: T5=${importance.totals?.tier_5 || 0} · T4=${importance.totals?.tier_4 || 0} · T3=${importance.totals?.tier_3 || 0} · T2=${importance.totals?.tier_2 || 0} · T1=${importance.totals?.tier_1 || 0} · T-1=${importance.totals?.tier_minus_1 || 0} suppressed`
+    : `⚠ Importance Layer unavailable (${importance.fetch_error || 'empty DB'}) — sweep falls back to legacy hardcoded per-deal queries.`)
+
+// Pre-flatten the email lists per tier for the sweep prompts — agents work
+// better with a flat list than with structured objects when assembling Gmail
+// query strings.
+const tierEmails = (tier) => {
+  const arr = importance[tier] || []
+  const emails = []
+  for (const p of arr) {
+    const personEmails = Array.isArray(p.emails) ? p.emails : (p.email ? [p.email] : [])
+    for (const e of personEmails) if (e) emails.push(e)
+  }
+  return emails
+}
+const TIER_5_EMAILS = tierEmails('tier_5')
+const TIER_4_EMAILS = tierEmails('tier_4')
+const TIER_3_EMAILS = tierEmails('tier_3')
+const TIER_2_EMAILS = tierEmails('tier_2')
+const TIER_1_EMAILS = tierEmails('tier_1')
+
+// Tier 4 family — WhatsApp numbers for the family-pass sweep (Tier 5 Alabama
+// is handled by the existing whatsapp-mandatory source).
+const TIER_4_FAMILY_WHATSAPP = (importance.tier_4 || [])
+  .filter(p => /family/i.test(p.relationship_type || '') && p.whatsapp_number)
+  .map(p => ({ name: p.name, whatsapp_number: p.whatsapp_number, why_important: p.why_important || '' }))
+
+// Suppressed senders — pattern list for the Gmail filter
+const SUPPRESSED_SENDERS = (importance.tier_minus_1 || []).map(p => {
+  const emails = Array.isArray(p.emails) ? p.emails : (p.email ? [p.email] : [])
+  return { name: p.name || '(pattern)', patterns: emails }
+})
+
 // ── Sweep schema: every source returns the same shape ──────────────────────
 
 const SWEEP_SCHEMA = {
@@ -312,6 +432,24 @@ const SWEEP_SCHEMA = {
     },
     still_open: { type: 'array', items: { type: 'string' } },
     source_errors: { type: 'array', items: { type: 'string' } },
+    // NEW 2026-06-20: per-thread owes-response signal exposed for the Gmail
+    // draft post-processor (separate downstream agent). Populated by the Gmail
+    // source primarily; other sources may emit if they detect a clear ask.
+    owes_response_recipients: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          thread_id: { type: 'string' },
+          recipient_email: { type: 'string', description: 'the address Roger should reply to' },
+          recipient_tier: { type: 'number', description: 'tier from Importance Layer; null if unknown' },
+          recipient_name: { type: 'string' },
+          owes_response: { type: 'boolean', description: 'true if Roger is the bottleneck on this thread' },
+          topic_summary: { type: 'string', description: 'one-line subject of what the response would address' },
+        },
+        required: ['thread_id', 'recipient_email', 'owes_response', 'topic_summary'],
+      },
+    },
   },
   required: ['source', 'deltas', 'still_open', 'source_errors'],
 }
@@ -352,36 +490,93 @@ ${CONTEXT}`,
   },
   {
     key: 'gmail',
-    prompt: `Pull Gmail via mcp__5508cee3-3894-430d-ad42-a90478ec1298__search_threads. The sweep must surface every actionable email — Roger's 20 Jun audit showed only 50-60% hit rate previously. THREE rules upgrade that:
+    prompt: `Pull Gmail via mcp__5508cee3-3894-430d-ad42-a90478ec1298__search_threads. The sweep is DATA-DRIVEN from Roger's Notion Importance Layer DB (id ${NOTION_IDS.cos_importance_db}) — NOT hardcoded per-deal keyword lists. The tier map below was fetched at the top of this run.
 
-RULE 1 — 7-DAY LOOKBACK (not 1-day). Use newer_than:7d on every query. Many actionable emails take 2-5 days to require a response; a 1-day window misses them. Yes this means more threads; the synthesize phase will dedup against existing FP cards.
+GLOBAL RULES
+- 7-DAY LOOKBACK on every query (newer_than:7d). Many actionable emails take 2-5 days to require a response; a 1-day window misses them. Synthesize phase will dedup against existing FP cards.
+- For each thread surfaced, classify Roger's position: "owes_response" (last message NOT from Roger AND contains a question / attachment for review / ask / deliverable shape) / "awaiting_them" (last message from Roger, no reply yet) / "informational" (FYI broadcast, no action implied).
+- Use existing owes_response heuristics: imperative verb in body, question mark, "could you", "please", "by <date>", "let me know", attached PDF/PPT/XLSX/DOCX from counterparty, deliverable shape.
+- Importance Layer availability flag: ${IMPORTANCE_AVAILABLE ? 'TIER MAP AVAILABLE — use the tier-driven queries below' : 'TIER MAP UNAVAILABLE — fall back to general newer_than:7d is:important inbox query plus the active-deal keyword pass at the bottom of this prompt'}.
 
-RULE 2 — PER-DEAL FILTERS (mandatory). Run these queries in addition to general inbox:
-  • "M-Kopa OR MKopa OR Aditus OR 'Project Aditus' newer_than:7d is:important"
-  • "FirstRand OR Optasia OR 'Project FirstRand' newer_than:7d is:important"
-  • "Crossfin newer_than:7d is:important"
-  • "TTB OR 'Project 529' OR TwoThreeBird newer_than:7d is:important"
-  • "Endeavor newer_than:7d is:important"
-  • "Lima OR Brendan OR 'Tyme D1' OR Coen newer_than:7d is:important"
-  • "Eden GP OR Hloni OR PwC newer_than:7d is:important"
-  • "Salvador OR Bassim OR Yusuf newer_than:7d is:important"
-  • "Pieter OR Tjaart OR Juraj OR Geordie OR Atlax OR WeR1 newer_than:7d is:important"
-  • "Mayur OR Willem Els OR Christo Roos newer_than:7d is:important"
-For each thread, extract: sender of latest message, time, subject, one-line substance.
+═══════════════════════════════════════════════════════════════════════════════
+TIER 5 — SUPREME (Alabama). Any inbound surfaces.
+${TIER_5_EMAILS.length ? 'Emails: ' + TIER_5_EMAILS.join(', ') : '(none in DB — Alabama is handled by whatsapp-mandatory source)'}
+For EACH email above, run: \`from:<email> OR to:<email> OR cc:<email> newer_than:7d\`. Surface ALL threads regardless of position — Tier 5 contact is always notable.
 
-RULE 3 — OWE-A-RESPONSE DETECTION. For every thread surfaced, classify Roger's position:
-  • IS HE WAITING ON THEM? (last message in thread is from Roger AND no reply yet)
-  • IS THEY WAITING ON HIM? (last message NOT from Roger AND contains a question, an attachment for review, an ask, or a deliverable shape)
-  • INFORMATIONAL? (FYI broadcast, no action implied)
-Mark each thread's "roger_position" as "owes_response" / "awaiting_them" / "informational". Items with "owes_response" go straight to the actionable list — these are the threads where Roger is the bottleneck.
+═══════════════════════════════════════════════════════════════════════════════
+TIER 4 — INNER CIRCLE (family + closest partners). Any inbound surfaces.
+${TIER_4_EMAILS.length ? 'Emails: ' + TIER_4_EMAILS.join(', ') : '(none in DB — fall through)'}
+For EACH email above, run: \`from:<email> OR to:<email> OR cc:<email> newer_than:7d\`. Surface ALL threads regardless of position.
 
-RULE 4 — DELIVERABLE-SHAPE ATTACHMENTS = ACTIONABLE. If a thread contains a PDF, PPT, XLSX, DOCX attachment from a counterparty (NOT from Roger or Isa), treat it as a deliverable for Roger to read/review. Examples: a board pack, an IC paper, a financial model, a research note, a mark-up. Do NOT filter these out as "informational" even if there's no explicit ask — receiving a board pack IS an implicit ask to read it before the board.
+═══════════════════════════════════════════════════════════════════════════════
+TIER 3 — ACTIVE DEALS / PORTFOLIO PRINCIPALS. Inbound surfaces ONLY when it matches active-deal scope.
+${TIER_3_EMAILS.length ? 'Emails: ' + TIER_3_EMAILS.join(', ') : '(none in DB)'}
+For EACH email above, run the same triple-from-to-cc query. Then FILTER the resulting threads to only those whose subject or body matches one of these active-deal scope tokens (case-insensitive):
+${ACTIVE_DEALS.filter(d => d.active).map(d => '  • ' + d.label + ': ' + d.keywords.join(' / ')).join('\n')}
+Plus these standing principal names: Mayur, Salvador, Bassim, Christo Roos, Willem Els.
+Threads from Tier 3 senders that don't match active-deal scope drop to "informational" and go to Everything Else.
 
-RULE 5 — IGNORE these (NOT actionable noise): calendar accepts/declines/invites (separate calendar sweep handles those), newsletter subscriptions, github notifications, billing/system alerts from Anthropic/Google/Stripe/etc., social network notifications, marketing.
+═══════════════════════════════════════════════════════════════════════════════
+TIER 2 — IMPORTANT BUT NOT ALWAYS-FIRE. Inbound surfaces ONLY when Roger owes a response.
+${TIER_2_EMAILS.length ? 'Emails: ' + TIER_2_EMAILS.join(', ') : '(none in DB)'}
+For EACH email above, run the same triple-from-to-cc query. Apply owes_response classifier to the latest message body. Surface ONLY threads where owes_response=true. The rest are informational.
 
-For each actionable thread return: sender of latest message, time (ISO), subject, one-line substance, roger_position (owes_response/awaiting_them/informational), has_deliverable_attachment (bool), deal_tag (m-kopa/firstrand/optasia/crossfin/ttb/endeavor/lima/eden-gp/other), thread_id, action_url (Gmail thread URL like https://mail.google.com/mail/u/0/#inbox/<thread_id>).
+═══════════════════════════════════════════════════════════════════════════════
+TIER 1 — WIDE NETWORK. Action-shaped only.
+${TIER_1_EMAILS.length ? 'Emails: ' + TIER_1_EMAILS.join(', ') : '(none in DB)'}
+For EACH email above, run the same triple-from-to-cc query. Surface ONLY threads where owes_response=true AND the body contains either an imperative verb (call/send/reply/sign/review/confirm/decide/approve/check/please/can you/could you) OR deadline language (by <date>, EOD, EOW, today, tomorrow, by Friday, <day-of-week>, ASAP, urgent).
 
-The synthesize phase will fold these into patch.fp_cards_add for any thread where roger_position="owes_response" AND no existing FP card already covers it (semantic dedup will catch dupes). "awaiting_them" goes to People & Bottlenecks as a tracking row. "informational" goes to Everything Else.
+═══════════════════════════════════════════════════════════════════════════════
+TIER -1 — SUPPRESSED. Hard-filter the results.
+${SUPPRESSED_SENDERS.length ? 'Patterns (drop matching threads silently):\n' + SUPPRESSED_SENDERS.map(s => '  • ' + s.name + ': ' + (s.patterns || []).join(', ')).join('\n') : 'Default suppression list:\n  • noreply@*, no-reply@*, notifications@*, donotreply@*\n  • calendar-notification@google.com (accept/decline artefacts)\n  • LinkedIn newsletters / connection notifications\n  • Anthropic / Stripe / GitHub / Google billing & system alerts\n  • marketing@* / news@*'}
+If a sender matches any Tier -1 pattern, DROP the thread entirely. Do not return as informational, do not surface in any tier — silent filter.
+
+═══════════════════════════════════════════════════════════════════════════════
+ANYONE NOT IN ANY TIER — falls through to existing Everything Else catch-all
+Run one general query: \`newer_than:7d is:important\` (catches important-marked threads from unknown senders). For each result, check that the sender does NOT match Tier -1 suppression. If they pass, return with recipient_tier=null and roger_position classified normally.
+
+═══════════════════════════════════════════════════════════════════════════════
+ACTIVE-DEAL KEYWORD PASS (mandatory belt-and-suspenders — runs alongside the tier passes above to catch threads where the active-deal mention is by someone NOT yet in the Importance Layer)
+For each active deal in the registry, run: \`<deal keywords> newer_than:7d is:important\`.
+  ${ACTIVE_DEALS.filter(d => d.active).map(d => '• ' + d.label + ': "' + d.keywords.join(' OR ') + '"').join('\n  ')}
+
+═══════════════════════════════════════════════════════════════════════════════
+DELIVERABLE-SHAPE ATTACHMENTS = ACTIONABLE (rule unchanged from prior version)
+If a thread contains a PDF / PPT / XLSX / DOCX attachment from a counterparty (NOT from Roger or Isa), treat it as a deliverable for Roger to read/review. Examples: a board pack, an IC paper, a financial model, a research note, a mark-up. Do NOT filter these out as "informational" even if there's no explicit ask — receiving a board pack IS an implicit ask to read it before the board.
+
+═══════════════════════════════════════════════════════════════════════════════
+SEED TASKS (Spock-injected — treat as forced candidates equivalent to a Notion Respond Pending entry)
+${SEED_TASKS.length ? SEED_TASKS.map(s => '  • who="' + s.who + '" · topic="' + s.topic + '" · source="' + s.source + '" · added="' + s.added + '"').join('\n') : '  (none)'}
+For each seed task, emit ONE delta with status='action_owed', notable=true, who=<seed.who>, what=<seed.topic + " (Spock seed)">, when=<seed.added>. Also push to owes_response_recipients with thread_id="seed:<slug>", recipient_email=<lookup in Importance Layer by name; null if absent>, recipient_name=<seed.who>, recipient_tier=<from Importance Layer if matched>, owes_response=true, topic_summary=<seed.topic>. The downstream Gmail draft post-processor will draft an outbound on Roger's behalf.
+
+═══════════════════════════════════════════════════════════════════════════════
+RETURN SHAPE
+For each surfaced thread, populate BOTH:
+
+(a) deltas[] (existing shape) — one entry per actionable thread with: who (sender of latest message), when (ISO), what (subject + one-line substance), status (action_owed / fyi / closed / in_flight / time_pressured), notable (true if Tier 5/4 OR Tier 3+active-deal OR owes_response=true), thread_url (https://mail.google.com/mail/u/0/#inbox/<thread_id>).
+
+(b) owes_response_recipients[] (NEW — feeds the downstream Gmail draft post-processor): one entry per thread where Roger owes a response. Fields: thread_id, recipient_email (the address Roger should reply to — for a thread from foo@x.com to roger@gmail.com, recipient_email is foo@x.com), recipient_tier (1/2/3/4/5 from Importance Layer, or null), recipient_name (from Importance Layer match, or extracted from From header), owes_response=true, topic_summary (one-line subject of what the response would address).
+
+Synthesize will fold deltas into patch.fp_cards_add for owes_response threads; "awaiting_them" goes to People & Bottlenecks; "informational" goes to Everything Else. owes_response_recipients passes through untouched for the downstream draft agent.
+
+${CONTEXT}`,
+  },
+  {
+    key: 'whatsapp-tier-4-family',
+    prompt: `Tier 4 family WhatsApp pass (NEW 2026-06-20 — supplements the existing whatsapp-mandatory source which handles Tier 5 Alabama). Surface anything from Tier 4 family members.
+
+Family numbers from the Importance Layer DB:
+${TIER_4_FAMILY_WHATSAPP.length ? TIER_4_FAMILY_WHATSAPP.map(f => '  • ' + f.name + ' (' + f.whatsapp_number + ')' + (f.why_important ? ' — ' + f.why_important : '')).join('\n') : '  (none — Importance Layer DB has no Tier 4 family entries with WhatsApp numbers; this sweep no-ops)'}
+
+For EACH family member above:
+1. Call mcp__whatsapp__list_messages with sender = <whatsapp_number> OR the direct-chat-by-contact for that number, after = ${args?.since || 'previous fire timestamp'}. Get every inbound message since the last edition.
+2. For each message, surface ONE delta with: who=<family member name>, when=<ISO timestamp of message>, what=<message text verbatim, capped 200 chars>, status='action_owed' if the message implies an ask else 'fyi', notable=true, thread_url=<WhatsApp deeplink: https://wa.me/<whatsapp_number>>.
+3. Apply the ALABAMA_INTIMACY_FILTER patterns to family content too — Roger's dashboard is read by Isa, so apologies / fights / love / vulnerable check-ins / mental-health content from family members must be suppressed the same way. Use these intimate keyword patterns:
+   ${ALABAMA_INTIMACY_FILTER.intimate_keyword_patterns.map(k => '"' + k + '"').join(', ')}
+   Three modes (same as Alabama): PURELY INTIMATE → suppress; MIXED → extract task only; PURELY TASK → surface normally.
+4. If a family member sent NO new messages this fire, do NOT surface a placeholder — silent absence.
+
+If TIER_4_FAMILY_WHATSAPP is empty, return source="whatsapp-tier-4-family", deltas=[], still_open=[], source_errors=["no Tier 4 family WhatsApp numbers in Importance Layer DB"].
 
 ${CONTEXT}`,
   },
@@ -939,6 +1134,35 @@ log(tipRotated
 
 phase('Apply')
 
+// Compute expected-drafts count for the Apply phase kicker. The Draft replies
+// phase runs AFTER Publish, but the kicker on the published page should
+// already advertise "N drafts ready" so Roger sees the signal in the same
+// edition that surfaces the threads. Forward-count: number of
+// owes_response_recipients entries (across all sweep sources) that will pass
+// the Draft replies tier gate (Tier 5 OR Tier 4 OR (Tier 3 AND owes_response)).
+// Intimacy-filtered Tier 5 messages are excluded — they don't draft.
+const draftableRecipients = []
+for (const src of sources) {
+  for (const r of (src.owes_response_recipients || [])) {
+    if (!r || !r.thread_id) continue
+    const tier = r.recipient_tier
+    const owes = r.owes_response === true
+    const qualifies = (tier === 5) || (tier === 4) || (tier === 3 && owes)
+    if (!qualifies) continue
+    // Tier 5 intimacy filter: skip if topic_summary or any source delta for this
+    // thread contains intimate keywords. The Draft replies agent re-checks but
+    // the count should be conservative here.
+    if (tier === 5) {
+      const blob = (r.topic_summary || '').toLowerCase()
+      const intimate = ALABAMA_INTIMACY_FILTER.intimate_keyword_patterns.some(k => blob.includes(k.toLowerCase()))
+      if (intimate) continue
+    }
+    draftableRecipients.push(r)
+  }
+}
+const EXPECTED_DRAFTS_N = draftableRecipients.length
+log(`Drafts kicker forecast: ${EXPECTED_DRAFTS_N} drafts will be queued (T5/T4/T3-owes; intimacy-filtered T5 excluded).`)
+
 const applyPrompt = `Apply the structured patch to ${PROJECT_LEDGER_DIR}/current.html.
 
 Patch:
@@ -1136,7 +1360,7 @@ Steps:
 7. ${tipRotated ? 'Rewrite the tip block using rotate-tip.py (pipe the tip JSON to its stdin).' : 'Skip tip block.'}
 
 8. Bump ALL timestamp anchors with TZ='Africa/Johannesburg' date queried NOW (re-query IMMEDIATELY before the snapshot, not at agent-start). Anchors that still exist after the 5–15 Jun cleanups:
-   (1) kicker time-of-day phrase (use patch.kicker; includes slot label)
+   (1) kicker time-of-day phrase (use patch.kicker; includes slot label). ⚠ DRAFTS KICKER LINE (NEW, post-publish drafts forecast): append a SECOND line to the kicker — "✏️ ${EXPECTED_DRAFTS_N} drafts ready" — rendered as <span class="kicker-drafts">✏️ ${EXPECTED_DRAFTS_N} drafts ready</span> directly after the existing kicker time-of-day span. If ${EXPECTED_DRAFTS_N} is 0, render "✏️ 0 drafts ready" rather than omitting the span (Roger needs to see the zero so he knows the post-processor ran). The actual drafts will be created by the Draft replies phase AFTER Publish; the kicker is a forward-look advertised in the same edition.
    (2) subtitle "Compiled HH:MM SAST..." (prepend time to patch.subtitle)
    (3) dateline-edition slot
    (4) ns-last-calibrated
@@ -1222,6 +1446,134 @@ const publishResult = await agent(publishPrompt, {
   phase: 'Publish',
 })
 
+// ── Phase 6: Draft replies ────────────────────────────────────────────────
+// Post-publish: for each owes_response_recipients entry whose tier qualifies
+// (Tier 5, Tier 4, or Tier 3 AND owes_response=true), generate a Gmail draft
+// reply in Roger's calibrated voice. Each draft is:
+//   - Idempotent (skip if a draft already exists on the thread)
+//   - Voice-matched (pulls last 3 sent emails from Roger to that recipient
+//     to calibrate language, length, formality, openings, closings)
+//   - Labelled "spock-draft" so Roger can review them as a batch
+//   - Spawned in parallel — one agent per draft, so a single failure (rate
+//     limit, missing data) doesn't abort the whole phase
+//
+// Safety rails:
+//   - Tier 5 (Alabama) messages that match the intimacy filter DO NOT draft
+//     (compounds the privacy risk — Roger handles intimate exchanges in
+//     WhatsApp directly).
+//   - All draft failures are logged and counted; the phase returns the count
+//     of drafts actually created.
+//
+// The "spock-draft" label is created inline by the FIRST draft agent that
+// finds it missing (precondition would race across parallel agents).
+
+phase('Draft replies')
+
+const DRAFT_SCHEMA = {
+  type: 'object',
+  properties: {
+    thread_id: { type: 'string' },
+    recipient_email: { type: 'string' },
+    status: { type: 'string', enum: ['drafted', 'skipped_existing', 'skipped_intimate', 'skipped_missing_data', 'failed'] },
+    draft_id: { type: 'string', description: 'Gmail draft id if created' },
+    voice_samples_used: { type: 'number', description: 'count of prior sent emails consulted for voice calibration' },
+    language_detected: { type: 'string', description: 'e.g. "english", "afrikaans", "mixed"' },
+    error: { type: 'string', description: 'non-empty if status=failed' },
+  },
+  required: ['thread_id', 'recipient_email', 'status'],
+}
+
+const DRAFTABLE = draftableRecipients
+log(`Draft replies phase: ${DRAFTABLE.length} candidates queued (T5/T4/T3-owes after intimacy filter).`)
+
+const draftResults = DRAFTABLE.length === 0
+  ? []
+  : await parallel(DRAFTABLE.map(rec => () =>
+      agent(
+        `Generate a Gmail draft reply for thread_id="${rec.thread_id}" addressed to "${rec.recipient_email}" (${rec.recipient_name || 'unknown name'}, Tier ${rec.recipient_tier ?? 'unknown'}).
+Topic: ${rec.topic_summary || '(no summary)'}
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 1 — IDEMPOTENCY CHECK (must run first)
+Call mcp__5508cee3-3894-430d-ad42-a90478ec1298__list_drafts. Scan results for any draft whose thread_id matches "${rec.thread_id}". If found, RETURN IMMEDIATELY with status="skipped_existing" and draft_id=<the existing draft id>. Do not regenerate — Roger may have hand-edited it.
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 2 — SAFETY RAIL (Tier 5 intimacy filter)
+If recipient_tier=${rec.recipient_tier} === 5, fetch the latest thread message via mcp__5508cee3-3894-430d-ad42-a90478ec1298__get_thread with id="${rec.thread_id}" and inspect the body for intimate keyword patterns:
+${ALABAMA_INTIMACY_FILTER.intimate_keyword_patterns.map(k => '  "' + k + '"').join('\n')}
+If ANY pattern matches (case-insensitive), RETURN IMMEDIATELY with status="skipped_intimate". Drafting an intimate reply on a surface Isa can see compounds the privacy risk. Roger will handle in Gmail directly.
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 3 — FETCH LATEST THREAD MESSAGE
+Call mcp__5508cee3-3894-430d-ad42-a90478ec1298__get_thread with id="${rec.thread_id}" (you may have it from Step 2). Extract:
+  • The latest message body (the one Roger is replying TO)
+  • The subject line
+  • The sender's display name
+  • Any explicit asks / questions / deliverable mentions
+If the fetch fails or returns no message body, RETURN with status="skipped_missing_data" and error="<the failure reason>".
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 4 — VOICE CALIBRATION (pull last 3 Roger→recipient sent emails)
+Call mcp__5508cee3-3894-430d-ad42-a90478ec1298__search_threads with query="from:me to:${rec.recipient_email}" and a reasonable limit. From the results, identify the THREE most recent threads where Roger himself sent a message TO this recipient. For each, fetch the thread via get_thread and locate Roger's sent message body.
+Calibrate the draft on:
+  • LANGUAGE — English / Afrikaans / mixed. Match what Roger uses with THIS recipient. Many South African correspondents get Afrikaans openings ("Hi <naam>", "Groete"); foreigners get English.
+  • LENGTH — 1 sentence? 1 paragraph? 3 paragraphs? Match the median of Roger's prior sends to this person.
+  • FORMALITY — first-name basis? Honorific? "Hi" vs "Dear" vs nothing?
+  • OPENINGS — does Roger usually skip the opener? Use "Hi <Name>" / "Hey" / "Hi" / "Morning"?
+  • CLOSINGS — "Best, Roger" / "Cheers" / "Groete" / "Talk soon" / just "R"? Match exactly.
+If fewer than 3 prior sent emails exist, use whatever you find. If ZERO exist, fall back to Roger's general voice (warm, concise, direct; no purple prose; no "I hope this email finds you well"; sign-off matches recipient's tier — Tier 5/4 = first-name + "R" or "Roger", Tier 3 = "Roger" or "Best, Roger").
+Track voice_samples_used = count of prior sent emails you actually read.
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 5 — DRAFT THE REPLY
+Compose the reply body in the calibrated voice. The reply should:
+  • Address every concrete ask in the latest message (don't ignore questions)
+  • Be the right LENGTH (matched to step 4 calibration)
+  • Use the right LANGUAGE (English/Afrikaans)
+  • Open and close exactly as Roger does with this recipient
+  • Never invent commitments Roger hasn't made. If you need to give a number/date/promise, write a soft hold instead ("Let me come back to you on the exact figure" / "I'll confirm by tomorrow") rather than fabricating.
+  • Never use banned phrases from roger-voice skill: "I hope this email finds you well", "circling back", "touch base", "moving the needle", "let me know if you have any questions" (use Roger's natural sign-off instead).
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 6 — CREATE THE DRAFT
+Call mcp__5508cee3-3894-430d-ad42-a90478ec1298__create_draft with:
+  • thread_id="${rec.thread_id}" (so it threads correctly as a REPLY, not a new send)
+  • to="${rec.recipient_email}"
+  • subject=<from latest message, prefixed with "Re: " if not already>
+  • body=<your composed reply>
+Capture the returned draft_id.
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 7 — LABEL THE DRAFT "spock-draft"
+Call mcp__5508cee3-3894-430d-ad42-a90478ec1298__list_labels and look for an existing label named exactly "spock-draft".
+  • If FOUND, capture its label_id.
+  • If NOT FOUND, call mcp__5508cee3-3894-430d-ad42-a90478ec1298__create_label with name="spock-draft" and capture the new label_id. (Inline-create here — a precondition step would race across parallel draft agents. The first agent that finds it missing creates it; subsequent agents find it and reuse. Both create_label and list_labels are idempotent enough for this race to be safe — Gmail dedups by name.)
+Then call mcp__5508cee3-3894-430d-ad42-a90478ec1298__label_message with message_id=<the draft's message id, available from the draft creation result> and label_id=<spock-draft label id>.
+If labelling fails, the draft is still valid — log the labelling error but return status="drafted" anyway (the draft itself is the load-bearing artefact; the label is convenience).
+
+═══════════════════════════════════════════════════════════════════════════════
+DEFER ON FAILURE
+If ANY step (other than Step 1 idempotency-skip or Step 2 intimacy-skip) fails with an unrecoverable error (rate limit, MCP exception, malformed thread), return status="failed" with error=<one-line summary>. Do NOT throw — the outer parallel() must continue with the other drafts. Roger reviews failures in the audit.
+
+Return the structured result.
+
+${CONTEXT}`,
+        {
+          label: `draft:${rec.thread_id}`,
+          phase: 'Draft replies',
+          schema: DRAFT_SCHEMA,
+        }
+      )
+    ))
+
+const drafts_created = draftResults.filter(r => r && r.status === 'drafted').length
+const drafts_skipped_existing = draftResults.filter(r => r && r.status === 'skipped_existing').length
+const drafts_skipped_intimate = draftResults.filter(r => r && r.status === 'skipped_intimate').length
+const drafts_skipped_missing = draftResults.filter(r => r && r.status === 'skipped_missing_data').length
+const drafts_failed = draftResults.filter(r => r && r.status === 'failed').length
+
+log(`Draft replies done: ${drafts_created} drafted · ${drafts_skipped_existing} skipped (existing) · ${drafts_skipped_intimate} skipped (intimate) · ${drafts_skipped_missing} skipped (missing data) · ${drafts_failed} failed.`)
+
 return {
   version: patch.version_string,
   slot: patch.slot_label,
@@ -1232,4 +1584,10 @@ return {
   tip_id: tip?.id || null,
   sources_swept: sources.length,
   publish_result: publishResult,
+  drafts_forecast: EXPECTED_DRAFTS_N,
+  drafts_created,
+  drafts_skipped_existing,
+  drafts_skipped_intimate,
+  drafts_skipped_missing,
+  drafts_failed,
 }
