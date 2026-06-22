@@ -30,7 +30,7 @@ if [[ -z "$CLAUDE_BIN" ]]; then
     if [[ -x "$cand" ]]; then CLAUDE_BIN="$cand"; break; fi
   done
 fi
-PROJDIR="$HOME/Documents/Claude/Projects/Project Ledger/project_ledger"
+PROJDIR="/Users/rogergrobler/spock-data/project_ledger"
 LOG_DIR="$PROJDIR/cron-logs"
 
 mkdir -p "$LOG_DIR"
@@ -122,55 +122,56 @@ unset CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
 
 WORKFLOW_PATH="$HOME/code/claude-project-ledger/workflows/build-ledger.workflow.js"
 
-if [[ -f "$WORKFLOW_PATH" ]]; then
+# IMPORTANT: the build-ledger workflow file CANNOT be invoked from `claude --print`
+# headless mode — the Workflow tool is gated behind interactive sessions and the
+# headless model responds "I don't have a Workflow tool available" and exits 0.
+# That silently fails: post-fire gate passes (current.html still parses) but no
+# actual rebuild happens. We were silently broken from ~16 Jun until this fix.
+#
+# So cron always uses Path A = /ledger-now skill (works in headless). Manual fires
+# from interactive Claude Code can still use the Workflow tool via:
+#   Workflow({scriptPath: "$WORKFLOW_PATH"})
+# The workflow.js stays as the source of truth for the interactive deep build.
+
+{
+  echo ""
+  echo "--- Path A: /ledger-now skill (headless-safe) ---"
+  echo "Workflow file present at: $WORKFLOW_PATH (used for interactive Workflow fires only)"
+  echo ""
+} >> "$LOG"
+
+"$CLAUDE_BIN" \
+  --print \
+  --dangerously-skip-permissions \
+  "/ledger-now" \
+  >> "$LOG" 2>&1
+
+EXIT_CODE=$?
+
+# Detect the silent-failure pattern: model said it lacked a tool but exited 0.
+# Treat that as a hard failure and try a more explicit invocation as Path B.
+if grep -qE "I (don'?t|do not) have (a |the )?[\"'\`]?Workflow[\"'\`]? tool|Workflow tool (is not|isn'?t) (available|present)" "$LOG"; then
+  EXIT_CODE=2
+fi
+
+if [[ $EXIT_CODE -ne 0 ]]; then
   {
     echo ""
-    echo "--- Path A: build-ledger workflow ---"
-    echo "Workflow file: $WORKFLOW_PATH"
+    echo "--- Path A failed (exit $EXIT_CODE) — falling back to explicit rebuild prompt ---"
     echo ""
   } >> "$LOG"
 
   "$CLAUDE_BIN" \
     --print \
     --dangerously-skip-permissions \
-    "Run the build-ledger workflow at $WORKFLOW_PATH. This is the canonical Stellenbosch Ledger refresh — the 5-phase deterministic pipeline (Sweep, Synthesize, RotateTip, Apply, Publish). Use the Workflow tool with scriptPath set to that path." \
+    "Generate a fresh Stellenbosch Ledger edition right now: sweep WhatsApp + Gmail + Calendar + Notion for the last 24h, synthesize into the standard 7-tab dashboard, replace current.html at /Users/rogergrobler/spock-data/project_ledger/current.html, commit and push to the spock-site-build GitHub Pages repo, then poll the live URL until the new version propagates. This is the same job /ledger-now would run." \
     >> "$LOG" 2>&1
 
   EXIT_CODE=$?
-
-  if [[ $EXIT_CODE -ne 0 ]]; then
-    {
-      echo ""
-      echo "--- Path A FAILED (exit $EXIT_CODE) — falling back to /ledger-now ---"
-      echo ""
-    } >> "$LOG"
-
-    "$CLAUDE_BIN" \
-      --print \
-      --dangerously-skip-permissions \
-      "/ledger-now" \
-      >> "$LOG" 2>&1
-
-    EXIT_CODE=$?
-    {
-      echo ""
-      echo "--- Path B (fallback) exit: $EXIT_CODE ---"
-    } >> "$LOG"
-  fi
-else
   {
     echo ""
-    echo "--- Workflow script not found, using /ledger-now ---"
-    echo ""
+    echo "--- Path B (fallback) exit: $EXIT_CODE ---"
   } >> "$LOG"
-
-  "$CLAUDE_BIN" \
-    --print \
-    --dangerously-skip-permissions \
-    "/ledger-now" \
-    >> "$LOG" 2>&1
-
-  EXIT_CODE=$?
 fi
 
 # --- post-fire self-heal + gate ----------------------------------------------
