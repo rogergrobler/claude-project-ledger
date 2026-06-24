@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Headless wrapper that fires the Stellenbosch Ledger rebuild + publish pipeline.
-# Invoked by launchd (macOS) at 06:30 / 13:00 / 21:00 SAST, or manually via:
+# Invoked by launchd (macOS) at 07:00 / 12:00 / 15:00 SAST, or manually via:
 #
 #     bash ~/code/claude-project-ledger/scripts/ledger-cron.sh
 #
@@ -133,45 +133,65 @@ WORKFLOW_PATH="$HOME/code/claude-project-ledger/workflows/build-ledger.workflow.
 #   Workflow({scriptPath: "$WORKFLOW_PATH"})
 # The workflow.js stays as the source of truth for the interactive deep build.
 
-{
-  echo ""
-  echo "--- Path A: /ledger-now skill (headless-safe) ---"
-  echo "Workflow file present at: $WORKFLOW_PATH (used for interactive Workflow fires only)"
-  echo ""
-} >> "$LOG"
+# Portable hard timeout — `timeout`/`gtimeout` (GNU coreutils) are NOT installed
+# on this Mac, so we roll our own. Runs "$@" with a wall-clock ceiling; on expiry
+# it TERMs then KILLs the process so a hung model can NEVER block forever (and can
+# never sit on the WhatsApp bridge indefinitely, which is what jammed the 24 Jun
+# 07:00 fire). Returns 124 on timeout, else the command's own exit code.
+run_with_timeout() {
+  local secs="$1"; shift
+  "$@" &
+  local cmd_pid=$!
+  ( sleep "$secs"; kill -TERM "$cmd_pid" 2>/dev/null; sleep 15; kill -KILL "$cmd_pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local watch_pid=$!
+  wait "$cmd_pid" 2>/dev/null
+  local rc=$?
+  # Stop the watcher no matter how the command ended (it may be mid grace-sleep).
+  kill -TERM "$watch_pid" 2>/dev/null; wait "$watch_pid" 2>/dev/null
+  # A signal-terminated command (rc >= 128) means our watcher fired → timeout.
+  if [[ $rc -ge 128 ]]; then rc=124; fi
+  return $rc
+}
 
-"$CLAUDE_BIN" \
-  --print \
-  --dangerously-skip-permissions \
-  "/ledger-now" \
-  >> "$LOG" 2>&1
+FIRE_BUDGET=1500   # 25 min hard ceiling per attempt
 
+# Headless-safe prompt. THE key fix: do every step inline in ONE turn and never
+# background a sub-agent — backgrounded agents don't complete under `claude
+# --print` and the run hangs (24 Jun 07:00). Points at the hardened /ledger-now
+# skill so the done-ledger drop, single-source summary and sanity gate all apply.
+FIRE_PROMPT='Build a fresh Stellenbosch Ledger edition now via the /ledger-now skill, but you are in a HEADLESS one-shot session: perform EVERY step yourself synchronously in THIS turn. Do NOT launch a background or async sub-agent and do NOT use the Task tool with run_in_background — a backgrounded agent never completes here and the run will hang. Sweep WhatsApp + Gmail + Calendar + Notion + Drive for the last 24h inline; reconcile done-ledger.json (drop every cleared fp-*/act-* id); advance <body data-compiled-at> to the current SAST time; single-source the summary (full text only in the subtitle, short kicker/dateline); bump the version; then run `bash scripts/sanity_check.sh current.html "<new-version>"` and publish ONLY if it prints PASS; commit and push to the spock-site-build repo; poll the live URL until the new version is live. Working file: /Users/rogergrobler/spock-data/project_ledger/current.html. Strictly read-only on every message source — never send, reply to, or react to anything.'
+
+fire_once() {
+  run_with_timeout "$FIRE_BUDGET" \
+    "$CLAUDE_BIN" --print --dangerously-skip-permissions "$FIRE_PROMPT" \
+    >> "$LOG" 2>&1
+}
+
+{ echo ""; echo "--- fire (headless-safe, ${FIRE_BUDGET}s ceiling) · attempt 1 ---"; echo ""; } >> "$LOG"
+
+fire_once
 EXIT_CODE=$?
+[[ $EXIT_CODE -eq 124 ]] && echo "  ERROR: attempt 1 TIMED OUT after ${FIRE_BUDGET}s (model hung) — process killed." >> "$LOG"
 
-# Detect the silent-failure pattern: model said it lacked a tool but exited 0.
-# Treat that as a hard failure and try a more explicit invocation as Path B.
+# Detect the old silent-failure pattern (model claims it lacks a tool, exits 0).
 if grep -qE "I (don'?t|do not) have (a |the )?[\"'\`]?Workflow[\"'\`]? tool|Workflow tool (is not|isn'?t) (available|present)" "$LOG"; then
   EXIT_CODE=2
 fi
 
+# One retry on any failure (timeout, crash, or tool-miss).
 if [[ $EXIT_CODE -ne 0 ]]; then
-  {
-    echo ""
-    echo "--- Path A failed (exit $EXIT_CODE) — falling back to explicit rebuild prompt ---"
-    echo ""
-  } >> "$LOG"
-
-  "$CLAUDE_BIN" \
-    --print \
-    --dangerously-skip-permissions \
-    "Generate a fresh Stellenbosch Ledger edition right now: sweep WhatsApp + Gmail + Calendar + Notion for the last 24h, synthesize into the standard 7-tab dashboard, replace current.html at /Users/rogergrobler/spock-data/project_ledger/current.html, commit and push to the spock-site-build GitHub Pages repo, then poll the live URL until the new version propagates. This is the same job /ledger-now would run." \
-    >> "$LOG" 2>&1
-
+  { echo ""; echo "--- attempt 1 failed (exit $EXIT_CODE) — single retry after 15s ---"; echo ""; } >> "$LOG"
+  sleep 15
+  fire_once
   EXIT_CODE=$?
-  {
-    echo ""
-    echo "--- Path B (fallback) exit: $EXIT_CODE ---"
-  } >> "$LOG"
+  [[ $EXIT_CODE -eq 124 ]] && echo "  ERROR: retry TIMED OUT after ${FIRE_BUDGET}s — giving up this fire." >> "$LOG"
+fi
+
+# Confirm the fire actually moved the live version; record it in the log.
+if curl -fsSL --max-time 20 -o /tmp/ledger-live-check.html "${LIVE_URL}?cb=$(date +%s)" 2>/dev/null; then
+  LIVE_NOW=$(grep -oE 'v1\.[0-9]+(\.[0-9]+)?' /tmp/ledger-live-check.html | head -1)
+  echo "  post-fire live version: ${LIVE_NOW:-unknown}" >> "$LOG"
+  rm -f /tmp/ledger-live-check.html
 fi
 
 # --- post-fire self-heal + gate ----------------------------------------------
