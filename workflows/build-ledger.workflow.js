@@ -143,6 +143,12 @@ const SEED_TASKS = [
     source: 'Spock seed 2026-06-20',
     added: '2026-06-20',
   },
+  {
+    who: "Roger's parents",
+    topic: 'Confirm directly that they will puppy-sit 7-14 Jul while Roger is in Botswana (Alabama already confirmed her side 18 Jun) — family ns',
+    source: 'Spock seed (scheduled reminder, 18 Jun) — surfaced 2026-07-01',
+    added: '2026-07-01',
+  },
 ]
 
 // ── ACTIVE-DEALS PRIORITY REGISTRY (Roger's standing high-priority deals) ──
