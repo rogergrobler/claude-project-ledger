@@ -1,0 +1,7 @@
+.DS_Store
+*.bak
+*.bak-*
+.bak-*
+# never commit secrets (they live in ~/.project_ledger, outside this repo)
+*oauth_token*
+config.toml

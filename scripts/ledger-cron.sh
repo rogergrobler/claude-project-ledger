@@ -35,6 +35,14 @@ LOG_DIR="$PROJDIR/cron-logs"
 
 mkdir -p "$LOG_DIR"
 
+# Fire lock — held for the duration of this fire so the 60s reconcile poller
+# (which also edits current.html) skips its ticks and can never collide with a
+# mid-build edit. Removed on ANY exit (trap), incl. timeout/kill of the child.
+FIRE_LOCK="$HOME/.project_ledger/fire.lock"
+mkdir -p "$(dirname "$FIRE_LOCK")"
+date +%s > "$FIRE_LOCK"
+trap 'rm -f "$FIRE_LOCK"' EXIT
+
 TS_FILE=$(TZ='Africa/Johannesburg' date '+%Y-%m-%d_%H-%M')
 TS_DISPLAY=$(TZ='Africa/Johannesburg' date '+%Y-%m-%d %H:%M SAST')
 LOG="$LOG_DIR/ledger-cron-${TS_FILE}.log"
@@ -86,7 +94,7 @@ if curl -fsSL --max-time 20 -o "$BASELINE_TMP" "${LIVE_URL}?cb=$(date +%s)" 2>>"
     # Sanity-check the live HTML has the v1.46+ tab structure before overwriting.
     if grep -q 'class="tab-btn"' "$BASELINE_TMP" && grep -q 'id="tab-bar"' "$BASELINE_TMP"; then
       # Detect & log version
-      LIVE_VERSION=$(grep -oE 'v1\.[0-9]+(\.[0-9]+)?' "$BASELINE_TMP" | head -1)
+      LIVE_VERSION=$(grep -oE 'id="dateline-edition">v[0-9]+\.[0-9]+(\.[0-9]+)?' "$BASELINE_TMP" | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
       mv "$BASELINE_TMP" "$CURRENT_HTML"
       echo "  ✓ rebased current.html from live (${LIVE_VERSION:-unknown}, ${LIVE_SIZE} bytes — has tab-bar + tab-btn structure)" >> "$LOG"
     else
@@ -119,6 +127,17 @@ cd "$HOME"
 # nested-session refusal).
 unset CLAUDECODE
 unset CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
+
+# Headless auth: load the long-lived OAuth token (minted via `claude setup-token`
+# on 1 Jul 2026, valid ~1 year) if the environment doesn't already carry one.
+# This is what lets `claude --print` authenticate under launchd after the
+# interactive OAuth access-token died (27 Jun) and hard-logged-out (1 Jul).
+# Stored 0600 at the path below, OUTSIDE any git repo. When it nears expiry
+# (~mid-2027) re-run `claude setup-token` and overwrite that file.
+TOKEN_FILE="$HOME/.project_ledger/claude_oauth_token"
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -r "$TOKEN_FILE" ]]; then
+  export CLAUDE_CODE_OAUTH_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
+fi
 
 WORKFLOW_PATH="$HOME/code/claude-project-ledger/workflows/build-ledger.workflow.js"
 
@@ -187,9 +206,29 @@ if [[ $EXIT_CODE -ne 0 ]]; then
   [[ $EXIT_CODE -eq 124 ]] && echo "  ERROR: retry TIMED OUT after ${FIRE_BUDGET}s — giving up this fire." >> "$LOG"
 fi
 
+# Expired-credentials detector. The headless CLI reads ~/.claude/.credentials.json;
+# its OAuth access token expires (and silently fails to refresh if another device
+# rotated the refresh token out from under this machine). When that happens every
+# fire 401s and the dashboard silently freezes — exactly what bit us 27 Jun–30 Jun.
+# Surface it LOUDLY and actionably instead of burying a 401 in the fire output.
+if grep -qE '401|authentication_error|Invalid authentication credentials|Failed to authenticate|Not logged in|Please run /login|Please run .?claude setup-token' "$LOG"; then
+  {
+    echo ""
+    echo "  ╔══════════════════════════════════════════════════════════════════╗"
+    echo "  ║ AUTH EXPIRED — headless 'claude' got a 401. Dashboard NOT rebuilt. ║"
+    echo "  ║ FIX: on this Mac run  ->  claude setup-token                       ║"
+    echo "  ║ (long-lived token; survives the daily OAuth-access-token expiry).  ║"
+    echo "  ╚══════════════════════════════════════════════════════════════════╝"
+  } >> "$LOG"
+  # macOS desktop notification so a frozen dashboard can't go unnoticed for days.
+  command -v osascript >/dev/null 2>&1 && \
+    osascript -e 'display notification "Run: claude setup-token" with title "Ledger cron — AUTH EXPIRED" sound name "Basso"' >/dev/null 2>&1 || true
+  [[ $EXIT_CODE -eq 0 ]] && EXIT_CODE=3
+fi
+
 # Confirm the fire actually moved the live version; record it in the log.
 if curl -fsSL --max-time 20 -o /tmp/ledger-live-check.html "${LIVE_URL}?cb=$(date +%s)" 2>/dev/null; then
-  LIVE_NOW=$(grep -oE 'v1\.[0-9]+(\.[0-9]+)?' /tmp/ledger-live-check.html | head -1)
+  LIVE_NOW=$(grep -oE 'id="dateline-edition">v[0-9]+\.[0-9]+(\.[0-9]+)?' /tmp/ledger-live-check.html | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
   echo "  post-fire live version: ${LIVE_NOW:-unknown}" >> "$LOG"
   rm -f /tmp/ledger-live-check.html
 fi
@@ -217,6 +256,16 @@ if command -v node >/dev/null 2>&1 && [[ -f "$INJECT" && -f "$CURRENT_HTML" ]]; 
     fi
   } >> "$LOG" 2>&1
 fi
+
+# --- mirror to R2 (the Cloudflare Worker's live surface) --------------------
+# The fire pushes to GitHub Pages; also publish to R2 so the Worker (which is
+# where the auto-write dashboard is served + POSTs from) never serves a stale
+# edition after a scheduled fire.
+{
+  echo ""
+  echo "--- mirror current.html to R2 ---"
+  python3 "$HOME/code/claude-project-ledger/scripts/publish-r2.py" 2>&1 || echo "  ⚠ R2 mirror failed (non-fatal)"
+} >> "$LOG" 2>&1
 
 {
   echo ""

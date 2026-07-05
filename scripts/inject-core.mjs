@@ -28,6 +28,10 @@ if (!target) { console.error('usage: inject-core.mjs <html-file> [core-json]'); 
 let core;
 try { core = JSON.parse(fs.readFileSync(coreFile, 'utf8')); }
 catch (e) { console.error(`✗ cannot read core template ${coreFile}: ${e.message}`); process.exit(1); }
+// Normalize object form ({"0":…,"1":…}) → array, in numeric-key order. The
+// template was historically an array; a save serialized it as an object, which
+// left core.length undefined and silently no-op'd every inject (see git blame).
+if (core && !Array.isArray(core)) core = Object.keys(core).sort((a, b) => (+a) - (+b)).map(k => core[k]);
 
 let html;
 try { html = fs.readFileSync(target, 'utf8'); }

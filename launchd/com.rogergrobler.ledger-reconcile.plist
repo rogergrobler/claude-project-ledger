@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.rogergrobler.ledger-reconcile</string>
+
+  <!--
+    Auto-write reconcile poller. Every 60s it drains the R2 inbox/ (changes the
+    dashboard POSTed via the Worker), applies Done/defer/delete to current.html +
+    done-ledger, republishes to R2 + GitHub Pages, and queues notes/tasks for the
+    next Claude fire. No-op (returns immediately) when the inbox is empty.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/rogergrobler/code/claude-project-ledger/scripts/reconcile.py</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/rogergrobler/spock-data/project_ledger/cron-logs/reconcile-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/rogergrobler/spock-data/project_ledger/cron-logs/reconcile-stderr.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/rogergrobler/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/rogergrobler</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

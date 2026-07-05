@@ -42,9 +42,9 @@
 
   <!-- launchd-level stdout/stderr (one combined log; per-fire detail is in cron-logs/) -->
   <key>StandardOutPath</key>
-  <string>/Users/rogergrobler/Documents/Claude/Projects/Project Ledger/project_ledger/cron-logs/launchd-stdout.log</string>
+  <string>/Users/rogergrobler/spock-data/project_ledger/cron-logs/launchd-stdout.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/rogergrobler/Documents/Claude/Projects/Project Ledger/project_ledger/cron-logs/launchd-stderr.log</string>
+  <string>/Users/rogergrobler/spock-data/project_ledger/cron-logs/launchd-stderr.log</string>
 
   <!--
     PATH needs to include git, curl, and the claude binary location.
