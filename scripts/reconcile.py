@@ -13,9 +13,8 @@ once a minute by launchd — drains that inbox and applies it:
                            scheduled Claude fire to reason about and apply.
 
 After applying, if current.html changed AND the sanity gate passes, it
-republishes to BOTH R2 (the live Worker surface) and GitHub Pages (kept in
-sync so the scheduled Claude fires, which rebase from the live URL, don't
-revert the drops). Processed inbox objects are then deleted from R2.
+republishes to R2 — the password-protected Cloudflare Worker surface (the only
+public copy is a redirect to it). Processed inbox objects are then deleted.
 
 Safety: single-instance lockfile; pre-edit backup; publishes ONLY on a green
 sanity gate; never touches <script> blocks.
@@ -250,8 +249,7 @@ def main():
             return  # leave inbox intact so nothing is lost; investigate
         body = new_text.encode("utf-8")
         publish_r2(s3, cfg, body)
-        pages = publish_pages()
-        log(f"published to R2{' + GitHub Pages' if pages else ' (Pages push FAILED)'}")
+        log("published to R2 (password-protected Worker surface)")
 
     # delete processed inbox objects (only reached if gate passed or no html change)
     for key in processed_keys:

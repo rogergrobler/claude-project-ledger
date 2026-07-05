@@ -75,7 +75,9 @@ fi
 # is to ALWAYS rebase current.html from the live published edition before
 # firing — that's the canonical "what Roger sees right now" state.
 
-LIVE_URL="https://rogergrobler.github.io/spock-site-build/ledger/"
+WORKER_URL="https://ledger.roger-grobler.workers.dev/"
+LIVE_URL="$WORKER_URL"
+AUTH_PASS="$(grep -E '^auth_pass' "$HOME/.project_ledger/config.toml" 2>/dev/null | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')"
 CURRENT_HTML="$PROJDIR/current.html"
 BASELINE_TMP="$PROJDIR/.baseline.tmp.html"
 
@@ -85,7 +87,7 @@ BASELINE_TMP="$PROJDIR/.baseline.tmp.html"
   echo "Pulling live edition from $LIVE_URL as the working baseline"
 } >> "$LOG"
 
-if curl -fsSL --max-time 20 -o "$BASELINE_TMP" "${LIVE_URL}?cb=$(date +%s)" 2>>"$LOG"; then
+if curl -fsSL --max-time 20 -u "x:$AUTH_PASS" -o "$BASELINE_TMP" "${LIVE_URL}?cb=$(date +%s)" 2>>"$LOG"; then
   LIVE_SIZE=$(wc -c < "$BASELINE_TMP" | tr -d ' ')
   if [[ "$LIVE_SIZE" -lt 50000 ]]; then
     echo "  WARNING: live fetch only ${LIVE_SIZE} bytes — too small, keeping existing current.html" >> "$LOG"
@@ -178,7 +180,7 @@ FIRE_BUDGET=1500   # 25 min hard ceiling per attempt
 # background a sub-agent — backgrounded agents don't complete under `claude
 # --print` and the run hangs (24 Jun 07:00). Points at the hardened /ledger-now
 # skill so the done-ledger drop, single-source summary and sanity gate all apply.
-FIRE_PROMPT='Build a fresh Stellenbosch Ledger edition now via the /ledger-now skill, but you are in a HEADLESS one-shot session: perform EVERY step yourself synchronously in THIS turn. Do NOT launch a background or async sub-agent and do NOT use the Task tool with run_in_background — a backgrounded agent never completes here and the run will hang. Sweep WhatsApp + Gmail + Calendar + Notion + Drive for the last 24h inline; reconcile done-ledger.json (drop every cleared fp-*/act-* id); advance <body data-compiled-at> to the current SAST time; single-source the summary (full text only in the subtitle, short kicker/dateline); bump the version; then run `bash scripts/sanity_check.sh current.html "<new-version>"` and publish ONLY if it prints PASS; commit and push to the spock-site-build repo; poll the live URL until the new version is live. Working file: /Users/rogergrobler/spock-data/project_ledger/current.html. Strictly read-only on every message source — never send, reply to, or react to anything.'
+FIRE_PROMPT='Build a fresh Stellenbosch Ledger edition now via the /ledger-now skill, but you are in a HEADLESS one-shot session: perform EVERY step yourself synchronously in THIS turn. Do NOT launch a background or async sub-agent and do NOT use the Task tool with run_in_background — a backgrounded agent never completes here and the run will hang. Sweep WhatsApp + Gmail + Calendar + Notion + Drive for the last 24h inline; reconcile done-ledger.json (drop every cleared fp-*/act-* id); advance <body data-compiled-at> to the current SAST time; single-source the summary (full text only in the subtitle, short kicker/dateline); bump the version; then run `bash scripts/sanity_check.sh current.html "<new-version>"` and publish ONLY if it prints PASS; do NOT git-push and do NOT push to spock-site-build — the wrapper mirrors current.html to the password-protected R2/Worker surface afterward. Just leave current.html updated on disk. Working file: /Users/rogergrobler/spock-data/project_ledger/current.html. Strictly read-only on every message source — never send, reply to, or react to anything.'
 
 fire_once() {
   run_with_timeout "$FIRE_BUDGET" \
@@ -227,7 +229,7 @@ if grep -qE '401|authentication_error|Invalid authentication credentials|Failed 
 fi
 
 # Confirm the fire actually moved the live version; record it in the log.
-if curl -fsSL --max-time 20 -o /tmp/ledger-live-check.html "${LIVE_URL}?cb=$(date +%s)" 2>/dev/null; then
+if curl -fsSL --max-time 20 -u "x:$AUTH_PASS" -o /tmp/ledger-live-check.html "${LIVE_URL}?cb=$(date +%s)" 2>/dev/null; then
   LIVE_NOW=$(grep -oE 'id="dateline-edition">v[0-9]+\.[0-9]+(\.[0-9]+)?' /tmp/ledger-live-check.html | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
   echo "  post-fire live version: ${LIVE_NOW:-unknown}" >> "$LOG"
   rm -f /tmp/ledger-live-check.html
@@ -265,6 +267,19 @@ fi
   echo ""
   echo "--- mirror current.html to R2 ---"
   python3 "$HOME/code/claude-project-ledger/scripts/publish-r2.py" 2>&1 || echo "  ⚠ R2 mirror failed (non-fatal)"
+} >> "$LOG" 2>&1
+
+# --- backup runtime state to the private repo (spock-ledger-data) -----------
+# Keep done-ledger.json + the edition archive off-Mac. Runs 3x/day with the fire;
+# non-fatal on failure. Secrets live outside this dir and are .gitignored.
+{
+  echo ""
+  echo "--- backup runtime state to private repo ---"
+  if git -C "$PROJDIR" add -A && git -C "$PROJDIR" commit -q -m "auto-backup $(TZ='Africa/Johannesburg' date '+%F %H:%M SAST')" 2>/dev/null; then
+    git -C "$PROJDIR" push -q origin main && echo "  ✓ pushed to spock-ledger-data" || echo "  ⚠ backup push failed (non-fatal)"
+  else
+    echo "  (no runtime changes to back up)"
+  fi
 } >> "$LOG" 2>&1
 
 {
