@@ -42,7 +42,13 @@ Launch a single general-purpose agent IN THE BACKGROUND with the full sweep prom
 - Scan every message body (across all chats) for the case-insensitive prefix `"spock:"` at the start of a line — these are explicit "missing-item, please add" flags that bypass normal triage and must be surfaced verbatim with their Notion / URL payloads in the digest.
 
 **Other sources:**
-- Run targeted Gmail searches via `mcp__5508cee3-3894-430d-ad42-a90478ec1298__search_threads` keyed to the open threads from the previous edition (M-Kopa, Optasia, portfolio names, family threads).
+- **Gmail sweep — TWO passes, both MANDATORY every fire.** Use whichever Gmail `search_threads` tool is loaded this session (id varies by host).
+  1. **Continuity pass (keyed):** targeted searches keyed to the open threads from the previous edition (M-Kopa, Optasia, portfolio names, family threads). Carries known items forward.
+  2. **Warm-intro pass (source-based — the fast-turnaround SLA).** Run these standing queries on EVERY fire, regardless of what was open last edition — warm-intro counterparties are brand-new senders that no keyed query will ever match, which is exactly why they were being missed:
+     - `from:endeavor.org OR from:endeavor.co.za newer_than:14d`
+     - `subject:(intro OR introduction OR "Intro:") newer_than:14d`
+     - `("time slots" OR "availability" OR "happy to connect" OR "looking forward to connecting" OR "share more on the business") newer_than:10d -in:sent`
+     For every thread returned, inspect the LAST message. If it is inbound (sender is anyone other than `roger@ccap.ai`) and unanswered — a founder, CFO, or Endeavor partner is waiting on Roger or Isa — it is a **live intro awaiting reply**. Capture: counterparty name + company, who introduced them, exactly what they are waiting for (time slots / a call / a reply), and days-since-their-last-message. Isa handling the scheduling does NOT close it — an intro is only closed when the meeting is booked or Roger has explicitly passed.
 - List today and tomorrow's calendar events via `mcp__70bd15a3-8278-4771-b9a6-8282063bf947__list_events`.
 - Hit Notion (`mcp__7cf2ebb5-ae5a-4a10-9ec8-1272580794b5__notion-search`) for last-edited matches on the active deal codenames.
 - Hit Drive (`mcp__0b1096ba-68e1-4341-8b2e-69c4b381de5a__list_recent_files`) for fresh documents.
@@ -94,6 +100,7 @@ When the sweep agent returns, apply edits in parallel where possible (multiple `
 
 - Every date in the document must trace to a verified external anchor. No invented deadlines.
 - "Kevin Harris" — never "Kevin Hardy" (that was a fabrication caught 2026-05-26; do not regress).
+- **Founder-intro SLA — surface these FIRST, as their own Front Page cards.** A warm intro (especially the Endeavor co-invest pipeline — Nomad, MNT-Halan, Satispay, Barte, Tala, and whoever comes next) is Chronos's highest-leverage, most time-sensitive inbound: a founder introduced by a partner and left waiting reads as Chronos being slow, and the whole relationship depends on fast turnarounds. Every live intro-awaiting-reply the warm-intro sweep found gets its OWN `fp-*` card, tagged Chronos. NEVER fold intros into a single generic "Endeavor" deep-work card, and NEVER demote one to a buried 👤 Isa coordination row. Each card names the founder + company, states exactly what they are waiting for, and sets `data-first-seen` to the date of THEIR last message (not today) so the days-carrying pill screams the moment a reply slips. Endeavor is NO LONGER "no inbound / only moves when you sit with it" — it produces steady deal-flow; rewrite or retire any card that still claims otherwise.
 - Use "Partner" not "Founding Partner" for any Chronos colleague.
 - No process notes ("v4 Pipeline", "Spock pipeline", "Verifier-pair discipline") in this user-facing dashboard.
 - The version, last-calibrated timestamp, and slot label all advance together.
