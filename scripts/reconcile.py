@@ -67,8 +67,14 @@ def s3client(cfg):
     )
 
 # ── HTML element removal ─────────────────────────────────────────────────
-CARD_OPENER = re.compile(r'^\s*<div class="card(?: fire)?" data-id="([^"]+)"')
-LI_OPENER   = re.compile(r'^\s*<li class="signal-item[^"]*" data-id="([^"]+)"')
+# Attribute-ORDER-AGNOSTIC. The Claude fire emits cards as
+#   <div class="card fire" data-first-seen="…" data-id="…" …>
+# i.e. data-id is NOT always adjacent to class. The old strict regex required
+# adjacency and silently matched ZERO cards, so no Done ever removed a card
+# (the id landed in done-ledger but the card stayed). Match the class exactly
+# ("card" or "card <mods>", never "card-head") and find data-id anywhere in the tag.
+CARD_OPENER = re.compile(r'^\s*<div class="card(?:\s[^"]*)?"[^>]*\sdata-id="([^"]+)"')
+LI_OPENER   = re.compile(r'^\s*<li class="signal-item(?:\s[^"]*)?"[^>]*\sdata-id="([^"]+)"')
 
 def remove_element(lines, data_id):
     """Return (new_lines, removed_bool). Handles Front Page cards and
@@ -232,6 +238,16 @@ def main():
                 q.write(json.dumps(ch, ensure_ascii=False) + "\n")
             log(f"  queued {typ} {cid} for next Claude fire")
             processed_keys.append(key)
+
+    # Self-heal: any id already in done-ledger but STILL rendered (e.g. a drop the
+    # poller previously failed to apply) gets swept here, so the page can't drift
+    # out of sync with the ledger and the sanity gate's cleared-id check stays green.
+    for cid in list(ledger.keys()):
+        if any(f'data-id="{cid}"' in l for l in lines):
+            lines, removed = remove_element(lines, cid)
+            if removed:
+                html_changed = True
+                log(f"  self-heal: swept previously-cleared {cid}")
 
     # persist done-ledger always (records the clears)
     json.dump(ledger, open(DONELEDGER, "w"), ensure_ascii=False, indent=2)
