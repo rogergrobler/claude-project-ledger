@@ -59,7 +59,19 @@ const LIVE_URL = 'https://rogergrobler.github.io/spock-site-build/ledger/'
 const CONTEXT = `Roger Grobler, Partner at Chronos Capital Advisory in Stellenbosch.
 The Stellenbosch Ledger is his personal dashboard, published to ${LIVE_URL}.
 This workflow rebuilds it from scratch using fresh sweeps across his integrated
-data sources.`
+data sources.
+
+MCP TOOL-NAME RESOLUTION (applies to every Gmail / Calendar / Notion / Drive
+tool named in this prompt): the server prefix varies by surface. In desktop-app
+sessions the connectors carry UUID prefixes (mcp__5508cee3-… = Gmail,
+mcp__70bd15a3-… = Calendar, mcp__7cf2ebb5-… = Notion, mcp__0b1096ba-… = Drive);
+in CLI/headless sessions the same connectors appear as "claude.ai Gmail",
+"claude.ai Google Calendar", "claude.ai Notion", "claude.ai Google Drive", and
+a local token-based "notion" server may also exist. If a tool named in this
+prompt is not loaded under the exact name given, you MUST search for the same
+tool on any of these servers via ToolSearch (e.g. "gmail search threads")
+before declaring the source unavailable. Only report "MCP unavailable this
+session" after ToolSearch confirms no server exposes the capability.`
 
 // ── ALABAMA SUPREME PRIORITY (Roger's wife Elca — overrides every other rule) ─
 // Origin 2026-06-06: Roger missed an explicit "action. Phone Louisa please"
