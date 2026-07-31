@@ -141,6 +141,35 @@ if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -r "$TOKEN_FILE" ]]; then
   export CLAUDE_CODE_OAUTH_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
 fi
 
+# Two-tier auth (31 Jul 2026): the setup-token authenticates MODEL calls but
+# claude.ai connectors (Gmail/Calendar/Drive) NEVER attach under token auth —
+# that was the builds' chronic "MCP not connected" gap. Keychain OAuth (from an
+# interactive /login) DOES bridge connectors, but has died under launchd before
+# (27 Jun). So: hold the token aside, probe keychain auth, fire attempt 1 on
+# keychain when the probe passes, and fall back to the token on any auth
+# failure so the ledger never goes dark. Probe result is logged every fire.
+TOKEN_VALUE="${CLAUDE_CODE_OAUTH_TOKEN:-}"
+unset CLAUDE_CODE_OAUTH_TOKEN
+
+KEYCHAIN_AUTH_OK=0
+{
+  echo ""
+  echo "--- auth probe: keychain OAuth (no setup-token) ---"
+} >> "$LOG"
+PROBE_OUT="$("$CLAUDE_BIN" --print --model sonnet --dangerously-skip-permissions \
+  "Use ToolSearch to look for MCP tools for Gmail, Google Calendar and Google Drive. Reply with exactly one line: DIAG-CONNECTORS-PRESENT <three example tool names> if any exist, or DIAG-NO-CONNECTORS if none exist." \
+  </dev/null 2>&1 | tail -3)"
+# Neutralise auth-error phrases so the end-of-run expired-credentials detector
+# (which greps this whole log) doesn't false-alarm on a failed PROBE when the
+# token-auth build itself succeeded.
+echo "$PROBE_OUT" | sed -e 's/Not logged in/Not-logged-in(probe)/g' -e 's/401/4xx(probe)/g' -e 's/authentication_error/auth-error(probe)/g' >> "$LOG"
+if echo "$PROBE_OUT" | grep -q "DIAG-CONNECTORS-PRESENT"; then
+  KEYCHAIN_AUTH_OK=1
+  echo "  → keychain auth OK, connectors present — firing WITHOUT setup-token" >> "$LOG"
+else
+  echo "  → keychain auth unusable or connector-less — firing WITH setup-token (no Gmail/Cal/Drive this build)" >> "$LOG"
+fi
+
 WORKFLOW_PATH="$HOME/code/claude-project-ledger/workflows/build-ledger.workflow.js"
 
 # IMPORTANT: the build-ledger workflow file CANNOT be invoked from `claude --print`
@@ -183,9 +212,15 @@ FIRE_BUDGET=1500   # 25 min hard ceiling per attempt
 FIRE_PROMPT='Build a fresh Stellenbosch Ledger edition now via the /ledger-now skill, but you are in a HEADLESS one-shot session: perform EVERY step yourself synchronously in THIS turn. Do NOT launch a background or async sub-agent and do NOT use the Task tool with run_in_background — a backgrounded agent never completes here and the run will hang. Sweep WhatsApp + Gmail + Calendar + Notion + Drive for the last 24h inline; reconcile done-ledger.json (drop every cleared fp-*/act-* id); advance <body data-compiled-at> to the current SAST time; single-source the summary (full text only in the subtitle, short kicker/dateline); bump the version; CRITICAL: inside HTML tags use ONLY straight ASCII quotes (") — never curly/smart quotes (“ ” ‘ ’), which silently break class, onclick and data-id on the card; keep every card opener as <div class="card fire" data-id="..." ...>; then run `bash scripts/sanity_check.sh current.html "<new-version>"` and publish ONLY if it prints PASS; do NOT git-push and do NOT push to spock-site-build — the wrapper mirrors current.html to the password-protected R2/Worker surface afterward. Just leave current.html updated on disk. Working file: /Users/rogergrobler/spock-data/project_ledger/current.html. Strictly read-only on every message source — never send, reply to, or react to anything.'
 
 fire_once() {
-  run_with_timeout "$FIRE_BUDGET" \
-    "$CLAUDE_BIN" --print --dangerously-skip-permissions "$FIRE_PROMPT" \
-    >> "$LOG" 2>&1
+  if [[ $KEYCHAIN_AUTH_OK -eq 1 ]]; then
+    run_with_timeout "$FIRE_BUDGET" \
+      "$CLAUDE_BIN" --print --dangerously-skip-permissions "$FIRE_PROMPT" \
+      >> "$LOG" 2>&1
+  else
+    CLAUDE_CODE_OAUTH_TOKEN="$TOKEN_VALUE" run_with_timeout "$FIRE_BUDGET" \
+      "$CLAUDE_BIN" --print --dangerously-skip-permissions "$FIRE_PROMPT" \
+      >> "$LOG" 2>&1
+  fi
 }
 
 { echo ""; echo "--- fire (headless-safe, ${FIRE_BUDGET}s ceiling) · attempt 1 ---"; echo ""; } >> "$LOG"
@@ -199,8 +234,14 @@ if grep -qE "I (don'?t|do not) have (a |the )?[\"'\`]?Workflow[\"'\`]? tool|Work
   EXIT_CODE=2
 fi
 
-# One retry on any failure (timeout, crash, or tool-miss).
+# One retry on any failure (timeout, crash, or tool-miss). If attempt 1 ran on
+# keychain auth, retry on the setup-token instead — a mid-run auth death is the
+# most likely keychain failure mode and the token path is the proven-reliable one.
 if [[ $EXIT_CODE -ne 0 ]]; then
+  if [[ $KEYCHAIN_AUTH_OK -eq 1 ]]; then
+    KEYCHAIN_AUTH_OK=0
+    echo "  (retry will use the setup-token, not keychain auth)" >> "$LOG"
+  fi
   { echo ""; echo "--- attempt 1 failed (exit $EXIT_CODE) — single retry after 15s ---"; echo ""; } >> "$LOG"
   sleep 15
   fire_once
