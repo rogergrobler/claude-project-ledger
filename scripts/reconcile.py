@@ -29,6 +29,9 @@ QUEUE = os.path.join(PROJ, "pending-for-claude.jsonl")
 CONFIG = os.path.join(HOME, ".project_ledger", "config.toml")
 SANITY = os.path.join(HOME, "code", "claude-project-ledger", "scripts", "..", "..", "..", "spock-data", "project_ledger", "scripts", "sanity_check.sh")
 SANITY = os.path.join(PROJ, "scripts", "sanity_check.sh")
+PRIVACY = os.path.join(HOME, "code", "claude-project-ledger", "scripts", "privacy-gate.mjs")
+# launchd hands this script a minimal PATH, so `node` alone is not resolvable here.
+NODE = next((p for p in ("/opt/homebrew/bin/node", "/usr/local/bin/node") if os.path.exists(p)), "node")
 LOCK = os.path.join(HOME, ".project_ledger", "reconcile.lock")
 LOGF = os.path.join(PROJ, "cron-logs", "reconcile.log")
 SSB_REPO = "https://github.com/rogergrobler/spock-site-build.git"
@@ -110,6 +113,31 @@ def gate_ok():
         return "SANITY GATE: PASS" in r.stdout
     except Exception as e:
         log(f"gate error: {e}")
+        return False
+
+def privacy_ok():
+    """Strip blocked personal content from current.html before this path publishes.
+
+    The reconcile poller runs every 60s and publishes to R2 independently of
+    ledger-cron.sh, so the wrapper's privacy gate does NOT cover it — without this,
+    a single tap on the dashboard can push a private matter live within a minute
+    (which is exactly how the 3 Aug 2026 leak would have come back).
+
+    Same posture as the wrapper: a missing gate script or a missing blocklist
+    passes (the gate itself says so on stdout), a surviving blocked term fails.
+    """
+    if not os.path.exists(PRIVACY):
+        return True
+    try:
+        r = subprocess.run([NODE, PRIVACY, CURRENT], capture_output=True, text=True, timeout=120)
+        for ln in (r.stdout or "").strip().splitlines()[:12]:
+            log("  privacy: " + ln)
+        if r.returncode != 0:
+            log("  privacy: " + (r.stderr or "").strip()[:400])
+            return False
+        return True
+    except Exception as e:
+        log(f"privacy gate error: {e}")
         return False
 
 def publish_r2(s3, cfg, body):
@@ -263,7 +291,13 @@ def main():
             log("SANITY GATE FAILED after reconcile — restoring backup, NOT publishing")
             open(CURRENT, "w", encoding="utf-8").write(text)
             return  # leave inbox intact so nothing is lost; investigate
-        body = new_text.encode("utf-8")
+        if not privacy_ok():
+            log("PRIVACY GATE FAILED after reconcile — restoring backup, NOT publishing")
+            open(CURRENT, "w", encoding="utf-8").write(text)
+            return  # same posture as the sanity gate: keep the last-good live edition
+        # Re-read from disk: the privacy gate rewrites current.html in place, so
+        # new_text is stale the moment anything was stripped.
+        body = open(CURRENT, "rb").read()
         publish_r2(s3, cfg, body)
         log("published to R2 (password-protected Worker surface)")
 

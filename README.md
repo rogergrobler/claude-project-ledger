@@ -62,13 +62,15 @@ node scripts/privacy-gate.mjs ~/spock-data/project_ledger/current.html --check
 
 ## Scheduled rebuilds (macOS launchd)
 
-A launchd job fires the rebuild three times a day in SAST:
+A launchd job fires the rebuild three times a day in SAST — read from the installed plist on the Mac Studio, 3 Aug 2026 (this table previously said 06:30/13:00/21:00, which was wrong and cost real time during an incident):
 
 | Time (SAST) | Slot |
 | --- | --- |
-| 06:30 | morning |
-| 13:00 | midday |
-| 21:00 | evening |
+| 07:00 | morning |
+| 12:00 | midday |
+| 15:00 | evening |
+
+A **second** launchd job, `com.rogergrobler.ledger-reconcile`, runs `scripts/reconcile.py` every 60 seconds. It applies dashboard taps from `inbox/` and **publishes to R2 on its own path** — so anything that must not reach the live surface has to be gated there too, not only in `ledger-cron.sh`.
 
 Each fire runs `claude --print --dangerously-skip-permissions "/ledger-now"` headlessly, logs to `~/Documents/Claude/Projects/Project Ledger/project_ledger/cron-logs/`, and rotates the last 30 fires.
 
