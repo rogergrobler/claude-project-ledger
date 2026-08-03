@@ -177,9 +177,14 @@ const scrubSegments = (line, lineNo) => {
   return out.join('');
 };
 
+// The audit footer is the worst case, but the same treatment is the right answer
+// anywhere prose survived the unit-level passes above — a lede, a subtitle, an
+// si-body, a section head. Scrubbing the offending sentence beats the two
+// alternatives: dropping a whole lede (guts the page) or failing the publish
+// (freezes the ledger over one sentence). Fail-closed remains the backstop below.
 for (let i = 0; i < lines.length; i++) {
-  if (lines[i].length < 2000) continue;                    // only the mega-lines
-  if (!/footer-text|audit/i.test(lines[i])) continue;
+  if (!lines[i].trim()) continue;
+  if (!sensitive(raw(lines[i]))) continue;
   lines[i] = scrubSegments(lines[i], i + 1);
 }
 
