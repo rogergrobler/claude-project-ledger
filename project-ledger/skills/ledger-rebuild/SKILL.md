@@ -48,9 +48,11 @@ Each act-* row has a comment button and a tick state stored in localStorage.
 
 Run the same sweep agent pattern as `ledger-now` (see that SKILL.md), but instead of merging deltas into the existing HTML, regenerate each section fresh. Use the previous edition only as a source of "still-open" items to carry forward — never copy section text verbatim.
 
+A rebuild is the highest-risk fire for the private-matter rule: it re-renders every section from the raw sweep, so anything the delta path had been quietly leaving out gets a fresh chance to land on the page. `ledger-now` Step 3d (private-matter filter) and Step 3e (brevity budget) apply in full, and the rebuild is also the right moment to re-check that nothing already on the page violates them.
+
 ### Step 4 — Snapshot existing, write new, publish
 
-Before writing the new `current.html`, snapshot the existing one as `edition_<date>-<slot>-prerebuild.html` so Roger can diff if needed. Then write the new `current.html`, run the publish block (same as `ledger-now` Step 5), and poll for live.
+Before writing the new `current.html`, snapshot the existing one as `edition_<date>-<slot>-prerebuild.html` so Roger can diff if needed. Then write the new `current.html`, run `node ~/code/claude-project-ledger/scripts/privacy-gate.mjs current.html` (blocking — do not publish if it exits non-zero), run the publish block (same as `ledger-now` Step 5), and poll for live.
 
 ### Step 5 — Disclose
 

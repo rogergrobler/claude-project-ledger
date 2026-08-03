@@ -94,6 +94,51 @@ The dashboard has misclassified thread state across multiple editions in the pas
 
 Hard rule: for every FP card carried from the prior edition, the sweep agent must verify the open/closed state of its underlying thread before this fire confirms it as still-open or still-closed. If the sweep returned ambiguous evidence, the card stays open and the meta line carries an `⚠ verify` flag. NEVER inherit the prior edition's status field uncritically.
 
+### Step 3d — Private-matter filter (HARD GATE — the ledger has a second reader)
+
+Isa reads this dashboard. Treat every sweep result as if she is standing behind you.
+
+On 3 Aug 2026 a private family WhatsApp thread — the kind that touches other people's conduct, jobs and marriages — was swept into the Done tab, written out in full in the audit footer, and went live on the shared surface. Nothing about the sweep was wrong. The judgement about what deserved rendering was.
+
+**The call is yours, at classification time.** Before an item becomes a card, a row, or a footer line, ask: *if the wrong person read this, would it damage someone?* If yes, it is a private matter. There is no fixed list — a family dispute, an affair, a health or mental-health detail, an addiction, a fertility or pregnancy matter, a child's difficulty, someone else's job loss or disciplinary process, a friend's divorce, an apology thread, a reputation problem, anything under legal privilege. Personal-but-benign (a birthday, a flight, a payment, a gift) is not this.
+
+For a private matter:
+
+- **The substance never enters the ledger.** Not the card body, not the meta line, not the kicker, not the subtitle, not the lede, not the pull-quote, and **not the audit footer** — the footer is where the 3 Aug leak mostly lived, because it gets written as free narrative after the cards are done. It is the same surface as the cards. Apply the same test to every line of it.
+- **The flag may.** Roger's instruction: it can be flagged as sitting in WhatsApp, but the content must not make it into the ledger. So render at most ONE contentless pointer row in 👤 Isa or Everything-else: `🔒 Private thread — 1 item awaiting you. Detail intentionally not rendered here.` It names nobody, dates nothing, and quotes nothing. It carries no `fp-*` id that spells out the matter (a card id like `fp-sat-<name>-apology-letter` leaks the whole story on its own — use `fp-private-<n>`).
+- **Never carry it into `done-ledger.json` in prose.** A cleared card's text is re-rendered in the Done tab for weeks afterward, which is exactly how this stayed live for days after the thread itself had cooled.
+- **Say so in your report to Roger** (not in the HTML): "N private items withheld from the edition — they are in <chat>." He decides whether he wants them; the default is out.
+
+Enforcement, because a rule a model can forget is not a control:
+
+- `scripts/privacy-gate.mjs` runs on `current.html` before every publish. It strips blocked units and, if anything blocked survives, it FAILS — and the wrapper then skips the R2 mirror, so the live surface keeps serving the last-good edition.
+- Its blocklist is machine-local at `~/.project_ledger/private-filter.json` (never committed — it names real people and this repo is public). Shape: `templates/private-filter.example.json`.
+- `scripts/verify-build.mjs` T6 reports the same blocklist as a build-gate failure.
+- When a private matter has already leaked, add its people and `fp-*` ids to the blocklist. That is what keeps a reconciled `done-ledger.json` from re-rendering it on the next fire.
+
+### Step 3e — Brevity budget
+
+The dashboard is a decision surface, not a transcript. Roger's standing note, 3 Aug 2026: *"we need to tighten the amount of verbage in the ledger. It is too verbose."* Long entries hide the decision inside the evidence. Hard ceilings:
+
+| Element | Ceiling |
+| --- | --- |
+| Card title | 12 words |
+| Card "Why now" | 1 sentence, 30 words |
+| Card body | 45 words — the decision and what's blocking it, not the history |
+| `si-row` / Done row | 25 words |
+| NS card body | 60 words |
+| Lede | 120 words |
+| Subtitle (the one place the full summary lives) | 200 words |
+| Audit footer, per edition | ONE line: version, slot, sources answered, cards new/updated/retired, gaps. No narrative. |
+
+Rules that keep it there:
+
+- One fact per entry. If a card body carries three timestamps of the same thread, keep the latest and drop the rest — the thread is in WhatsApp and Gmail; the card exists to force a decision.
+- Never restate in the body what the title and meta line already say.
+- Editing a carried card: rewrite, don't append. Appending is how bodies triple over a week.
+- Verbatim quotes only where the exact wording IS the decision. One quote, under 20 words.
+- The audit footer is append-only history: when adding this edition's line, do not re-narrate previous editions. If the footer exceeds ~40 lines, drop the oldest.
+
 ### Step 4 — Merge sweep findings into `current.html`
 
 When the sweep agent returns, apply edits in parallel where possible (multiple `Edit` calls in one assistant turn). Hard rules:
@@ -150,6 +195,7 @@ Three-line summary:
 
 ## Guardrails
 
+- **Privacy gate is blocking.** Run `node ~/code/claude-project-ledger/scripts/privacy-gate.mjs <current.html>` before the snapshot in Step 5. If it exits non-zero, do NOT publish — report to Roger and stop. Step 3d has the full rule; the short version is that a highly personal matter is flagged, never rendered.
 - Never send drafts. If the sweep identifies an email Roger should send, leave it as a draft in Gmail Drafts only.
 - Never push to `main` of `spock-site-build` if the build fails any sanity check (file size collapses to <10 KB; HTML is malformed; the version tag wasn't actually injected). Stop and report.
 - If a sweep MCP source errors out, proceed with the rest and disclose the gap in the published edition's footer.

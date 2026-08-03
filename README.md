@@ -47,6 +47,19 @@ On any machine linked to Roger's Claude account:
 
 Each needs to be in the `permissions.allow` list of `~/.claude/settings.json`. `/ledger-setup` checks this.
 
+## Privacy gate
+
+The ledger has a second reader, so highly personal matters must never be rendered — flagged in WhatsApp, yes; written into a card, a Done row or the audit footer, no. Two layers:
+
+1. **Model-side** — `ledger-now` Step 3d ("Private-matter filter") makes the call at classification time, before an item becomes a card. Step 3e caps how long any entry can be.
+2. **Enforcement** — `scripts/privacy-gate.mjs` runs on `current.html` before the R2 mirror. It strips blocked units and fails the fire if any survive; `ledger-cron.sh` then skips the publish, so the live surface keeps serving the last-good edition. `verify-build.mjs` T6 reports the same list.
+
+The blocklist is machine-local at `~/.project_ledger/private-filter.json` and is deliberately **not in this repo** — it names real people and this repo is public. Copy `templates/private-filter.example.json` to that path on the build host to arm the gate. Without it, the gate warns and publishes unfiltered.
+
+```bash
+node scripts/privacy-gate.mjs ~/spock-data/project_ledger/current.html --check
+```
+
 ## Scheduled rebuilds (macOS launchd)
 
 A launchd job fires the rebuild three times a day in SAST:

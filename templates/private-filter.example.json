@@ -1,0 +1,49 @@
+{
+  "_README": [
+    "Shape reference for ~/.project_ledger/private-filter.json — the machine-local",
+    "blocklist read by scripts/privacy-gate.mjs before every publish.",
+    "",
+    "NEVER commit the real file. It names real people and this repo is public.",
+    "Copy this file to ~/.project_ledger/private-filter.json on the build host and",
+    "fill it in there. The gate warns and publishes unfiltered if it is missing.",
+    "",
+    "Matching is word-boundary, case-insensitive, applied to the rendered TEXT of",
+    "each unit (a Done-tab <li>, a Front Page card, an Isa row, or one segment of",
+    "the audit footer). A unit that matches is removed whole."
+  ],
+
+  "blockTerms": [
+    "// Hard block. Any unit naming one of these is removed, no matter the context.",
+    "// Use for people who should never appear in the ledger at all.",
+    "FirstName",
+    "Full Name"
+  ],
+
+  "allowTerms": [
+    "// Rescues legitimate collisions. Checked FIRST — these names are erased from",
+    "// the text before block matching, so a blocked first name cannot eat a longer",
+    "// name that contains it. Put every business counterparty who collides here.",
+    "Counterparty Full Name",
+    "Other Colliding Name"
+  ],
+
+  "contextTerms": [
+    "// Soft block: people who legitimately appear in business items but whose",
+    "// personal threads must not. Removed only when the same unit also carries a",
+    "// personalMarker below — so a board intro survives and a family dispute does not.",
+    "Sibling Name"
+  ],
+
+  "personalMarkers": [
+    "// The markers that turn a contextTerm into a block. Tune from real leaks.",
+    "apolog", "marriage", "behaviour", "behavior", "distress", "breather",
+    "bad intention", "witness statement", "HR, legal", "blow over",
+    "affair", "therapy", "diagnosis", "custody", "divorce"
+  ],
+
+  "blockCardIds": [
+    "// fp-* / act-* card ids from the leaked matter. Belt-and-braces: catches the",
+    "// audit footer's '(fp-…)' provenance tails even when the prose was reworded.",
+    "fp-example-private-matter"
+  ]
+}

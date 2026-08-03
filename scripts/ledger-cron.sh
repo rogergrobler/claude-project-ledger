@@ -209,7 +209,7 @@ FIRE_BUDGET=1500   # 25 min hard ceiling per attempt
 # background a sub-agent — backgrounded agents don't complete under `claude
 # --print` and the run hangs (24 Jun 07:00). Points at the hardened /ledger-now
 # skill so the done-ledger drop, single-source summary and sanity gate all apply.
-FIRE_PROMPT='Build a fresh Stellenbosch Ledger edition now via the /ledger-now skill, but you are in a HEADLESS one-shot session: perform EVERY step yourself synchronously in THIS turn. Do NOT launch a background or async sub-agent and do NOT use the Task tool with run_in_background — a backgrounded agent never completes here and the run will hang. Sweep WhatsApp + Gmail + Calendar + Notion + Drive for the last 24h inline; reconcile done-ledger.json (drop every cleared fp-*/act-* id); advance <body data-compiled-at> to the current SAST time; single-source the summary (full text only in the subtitle, short kicker/dateline); bump the version; CRITICAL: inside HTML tags use ONLY straight ASCII quotes (") — never curly/smart quotes (“ ” ‘ ’), which silently break class, onclick and data-id on the card; keep every card opener as <div class="card fire" data-id="..." ...>; then run `bash scripts/sanity_check.sh current.html "<new-version>"` and publish ONLY if it prints PASS; do NOT git-push and do NOT push to spock-site-build — the wrapper mirrors current.html to the password-protected R2/Worker surface afterward. Just leave current.html updated on disk. Working file: /Users/rogergrobler/spock-data/project_ledger/current.html. Strictly read-only on every message source — never send, reply to, or react to anything.'
+FIRE_PROMPT='Build a fresh Stellenbosch Ledger edition now via the /ledger-now skill, but you are in a HEADLESS one-shot session: perform EVERY step yourself synchronously in THIS turn. Do NOT launch a background or async sub-agent and do NOT use the Task tool with run_in_background — a backgrounded agent never completes here and the run will hang. Sweep WhatsApp + Gmail + Calendar + Notion + Drive for the last 24h inline; reconcile done-ledger.json (drop every cleared fp-*/act-* id); advance <body data-compiled-at> to the current SAST time; single-source the summary (full text only in the subtitle, short kicker/dateline); bump the version; CRITICAL: inside HTML tags use ONLY straight ASCII quotes (") — never curly/smart quotes (“ ” ‘ ’), which silently break class, onclick and data-id on the card; keep every card opener as <div class="card fire" data-id="..." ...>; PRIVACY — this dashboard has a second reader, so a highly personal matter (a family dispute, a health or intimacy detail, an apology thread, anything involving someone else'"'"'s marriage, job or reputation) must NEVER reach the ledger in substance: leave the detail in WhatsApp and render at most one contentless pointer row naming nobody, and never write it into the audit footer either; BREVITY — card bodies max 45 words, si-rows max 25, the audit footer records what changed in one line per edition, not a narrative; then run `bash scripts/sanity_check.sh current.html "<new-version>"` and publish ONLY if it prints PASS; do NOT git-push and do NOT push to spock-site-build — the wrapper mirrors current.html to the password-protected R2/Worker surface afterward. Just leave current.html updated on disk. Working file: /Users/rogergrobler/spock-data/project_ledger/current.html. Strictly read-only on every message source — never send, reply to, or react to anything.'
 
 fire_once() {
   if [[ $KEYCHAIN_AUTH_OK -eq 1 ]]; then
@@ -300,15 +300,51 @@ if command -v node >/dev/null 2>&1 && [[ -f "$INJECT" && -f "$CURRENT_HTML" ]]; 
   } >> "$LOG" 2>&1
 fi
 
+# --- privacy gate (BLOCKING) ------------------------------------------------
+# The ledger has a second reader. On 3 Aug 2026 a highly personal family WhatsApp
+# thread was swept into the Done tab and the audit footer and went live. The
+# model-side rule in /ledger-now (Step 3d) is the first line of defence; this is
+# the control. It strips blocked units from current.html and, if anything blocked
+# survives, FAILS — and a failure here skips the R2 mirror entirely, so the live
+# surface keeps serving the last-good (clean) edition rather than a leaking one.
+#
+# The blocklist is machine-local at ~/.project_ledger/private-filter.json and is
+# deliberately NOT in the repo (it names real people; the repo is public). If it
+# is absent the gate warns and passes, so a fresh machine still publishes.
+PRIVACY="$HOME/code/claude-project-ledger/scripts/privacy-gate.mjs"
+PRIVACY_OK=1
+
+if command -v node >/dev/null 2>&1 && [[ -f "$PRIVACY" && -f "$CURRENT_HTML" ]]; then
+  {
+    echo ""
+    echo "--- privacy gate ---"
+    if node "$PRIVACY" "$CURRENT_HTML"; then
+      echo "PRIVACY GATE: PASS"
+    else
+      PRIVACY_OK=0
+      echo "PRIVACY GATE: FAIL — blocked content survived. R2 MIRROR SKIPPED."
+    fi
+  } >> "$LOG" 2>&1
+  if [[ $PRIVACY_OK -eq 0 ]]; then
+    command -v osascript >/dev/null 2>&1 && \
+      osascript -e 'display notification "Blocked personal content in current.html — live surface NOT updated" with title "Ledger — PRIVACY GATE FAIL" sound name "Basso"' >/dev/null 2>&1 || true
+    [[ $EXIT_CODE -eq 0 ]] && EXIT_CODE=4
+  fi
+fi
+
 # --- mirror to R2 (the Cloudflare Worker's live surface) --------------------
 # The fire pushes to GitHub Pages; also publish to R2 so the Worker (which is
 # where the auto-write dashboard is served + POSTs from) never serves a stale
 # edition after a scheduled fire.
-{
-  echo ""
-  echo "--- mirror current.html to R2 ---"
-  python3 "$HOME/code/claude-project-ledger/scripts/publish-r2.py" 2>&1 || echo "  ⚠ R2 mirror failed (non-fatal)"
-} >> "$LOG" 2>&1
+if [[ $PRIVACY_OK -eq 1 ]]; then
+  {
+    echo ""
+    echo "--- mirror current.html to R2 ---"
+    python3 "$HOME/code/claude-project-ledger/scripts/publish-r2.py" 2>&1 || echo "  ⚠ R2 mirror failed (non-fatal)"
+  } >> "$LOG" 2>&1
+else
+  echo "  (R2 mirror skipped — privacy gate failed)" >> "$LOG"
+fi
 
 # --- backup runtime state to the private repo (spock-ledger-data) -----------
 # Keep done-ledger.json + the edition archive off-Mac. Runs 3x/day with the fire;

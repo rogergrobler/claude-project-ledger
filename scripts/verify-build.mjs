@@ -22,11 +22,15 @@
 //        matching <div class="tab-panel" id="panel-NAME"> and vice versa, and
 //        all tab onclick handlers reference showTab.
 //   T5  Cheap structural sanity — file size, no stray placeholder names.
+//   T6  Private-matter blocklist — no blocked person/matter reaches the page
+//        (reports only; scripts/privacy-gate.mjs is what strips and blocks)
 //
 // Usage:  node scripts/verify-build.mjs <path-to-html>
 // Exit:   0 = safe to publish · 1 = build broken (do NOT publish) · 2 = usage error
 
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import vm from 'node:vm';
 
 const file = process.argv[2];
@@ -142,6 +146,39 @@ const scriptBodies = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
   if (/Kevin Hardy/.test(html)) issues.push('contains stray placeholder "Kevin Hardy"');
   if (issues.length) fail('T5 Structural sanity', issues.join('; '));
   else                pass('T5 Structural sanity', `${html.length} bytes, no known stray placeholders`);
+}
+
+// ── T6: Private-matter blocklist ──────────────────────────────────────────
+// Second enforcement point for the 3 Aug 2026 leak (a personal family thread
+// reached the live Done tab and audit footer). scripts/privacy-gate.mjs is the
+// one that STRIPS; this only reports, so a build that skips the wrapper still
+// can't be waved through as "gate passed". Blocklist is machine-local and
+// absent-by-default — no filter file means this test is skipped, not failed.
+{
+  const filterPath = path.join(os.homedir(), '.project_ledger', 'private-filter.json');
+  let filter = null;
+  try { filter = JSON.parse(fs.readFileSync(filterPath, 'utf8')); } catch { /* absent */ }
+  if (!filter) {
+    pass('T6 Private-matter blocklist', 'no filter file — skipped');
+  } else {
+    const clean = a => (a || []).filter(s => typeof s === 'string' && !s.startsWith('//'));
+    const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const terms = clean(filter.blockTerms);
+    const ids   = clean(filter.blockCardIds);
+    const allow = clean(filter.allowTerms);
+    // Entities → space, so "Name&rsquo;s" stays two words and \b still bites.
+    let text = html.replace(/&[a-z]+;|&#x?[0-9a-f]+;/gi, ' ');
+    if (allow.length) text = text.replace(new RegExp(`\\b(?:${allow.map(esc).join('|')})\\b`, 'ig'), ' ');
+    const hits = [];
+    if (terms.length) {
+      const re = new RegExp(`\\b(?:${terms.map(esc).join('|')})\\b`, 'ig');
+      for (const m of text.matchAll(re)) hits.push(m[0]);
+    }
+    for (const id of ids) if (text.includes(id)) hits.push(id);
+    if (hits.length) fail('T6 Private-matter blocklist',
+      `${hits.length} blocked reference(s) present: ${[...new Set(hits)].slice(0, 8).join(', ')} — run scripts/privacy-gate.mjs before publishing`);
+    else pass('T6 Private-matter blocklist', `${terms.length} term(s) + ${ids.length} id(s) checked, none present`);
+  }
 }
 
 // ── Report ────────────────────────────────────────────────────────────────
