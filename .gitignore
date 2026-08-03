@@ -5,3 +5,7 @@
 # never commit secrets (they live in ~/.project_ledger, outside this repo)
 *oauth_token*
 config.toml
+
+# Python bytecode
+__pycache__/
+*.pyc
