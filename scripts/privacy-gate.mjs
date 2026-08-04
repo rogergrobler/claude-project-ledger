@@ -122,20 +122,33 @@ const sensitive = text => {
 };
 
 const removed = [];
+const warnings = [];
 let lines = html.split('\n');
 
 // ── Block-level units: <div class="card …"> and <div class="si-row"> ─────────
 // Walk forward from the opener counting <div opens vs </div> closes to find the
 // matching close, then test the whole unit's text.
+//
+// MAX_UNIT_LINES and the balance check are not tidiness — on 4 Aug 2026 an
+// unbalanced div let this loop run `end` to EOF, so ONE matched si-row blanked
+// 418 KB of the page, and the swallowed text (which by then contained half the
+// dashboard) tested "sensitive" on unrelated names, justifying its own deletion.
+// A unit we cannot bound is a unit we must not delete: skip it and warn, and let
+// the survivor check fail the publish if it really does hold blocked content.
+const MAX_UNIT_LINES = 200;
 const openerRe = /<div[^>]*class="(?:card\b[^"]*|si-row)"/;
 for (let i = 0; i < lines.length; i++) {
   if (!openerRe.test(lines[i])) continue;
-  let depth = 0, end = i;
-  for (let j = i; j < lines.length; j++) {
+  let depth = 0, end = -1;
+  const limit = Math.min(lines.length, i + MAX_UNIT_LINES);
+  for (let j = i; j < limit; j++) {
     depth += (lines[j].match(/<div\b/g) || []).length;
     depth -= (lines[j].match(/<\/div>/g) || []).length;
-    end = j;
-    if (depth <= 0) break;
+    if (depth <= 0) { end = j; break; }
+  }
+  if (end === -1) {
+    warnings.push(`unit at line ${i + 1} does not close within ${MAX_UNIT_LINES} lines — not stripped`);
+    continue;
   }
   const unit = lines.slice(i, end + 1).join('\n');
   if (sensitive(plain(unit))) {
@@ -203,6 +216,22 @@ const label = check ? 'privacy gate (check)' : 'privacy gate';
 console.log(`${label} — ${removed.length} unit(s) stripped, ${survivors.length} survivor(s)`);
 for (const r of removed.slice(0, 40)) console.log(`  – [${r.kind} L${r.line}] ${r.text}`);
 if (removed.length > 40) console.log(`  – … ${removed.length - 40} more`);
+for (const w of warnings) console.log(`  ⚠ ${w}`);
+
+// ── Blast-radius backstop ───────────────────────────────────────────────────
+// A privacy gate removes sentences and rows. It never removes most of a page.
+// On 4 Aug 2026 a runaway unit cut 498 KB to 80 KB and every other check passed:
+// the build gate said the JS parsed, the survivor check said nothing blocked
+// remained, and the wrapper cheerfully mirrored an empty dashboard to R2. This
+// is the check that would have caught it, so it is a hard failure, not a warning.
+const MIN_RETAINED = 0.75;
+if (out.length < html.length * MIN_RETAINED) {
+  const pct = ((1 - out.length / html.length) * 100).toFixed(1);
+  console.error(`\nPRIVACY GATE FAILED — refusing to write: this would remove ${pct}% of the page`);
+  console.error(`  ${html.length} → ${out.length} chars (floor is ${Math.round(MIN_RETAINED * 100)}% retained)`);
+  console.error('  That is a stripping bug, not a privacy result. Source left untouched.');
+  process.exit(1);
+}
 
 if (survivors.length) {
   console.error('\nPRIVACY GATE FAILED — blocked content still present after stripping:');
